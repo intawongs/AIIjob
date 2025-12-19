@@ -6,7 +6,7 @@ import gspread
 
 # ตั้งค่าหน้าเว็บ
 st.set_page_config(page_title="Chronos: Project AI", layout="wide")
-st.title("🌌 AII Project Tracker")
+st.title("🌌 Chronos Project Tracker (Online)")
 
 # ==========================================
 # 1. GOOGLE SHEETS CONNECTION
@@ -101,12 +101,14 @@ def load_data():
     return pd.DataFrame(), [], []
 
 def save_data():
+    """ฟังก์ชันบันทึกข้อมูลแบบแยกส่วน (Isolation Save) ป้องกันการพังต่อเนื่อง"""
     sh = connect_gsheet()
     if sh:
+        # ---------------------------------------------------
+        # PART 1: LOGS (งาน)
+        # ---------------------------------------------------
         try:
-            # --- SAVE LOGS ---
             ws_logs = sh.worksheet('Logs')
-            
             cols_to_save = [
                 'Employee', 'Main_Task', 'Sub_Task', 
                 'Start_Date', 'End_Date', 
@@ -120,35 +122,47 @@ def save_data():
             for c in cols_to_save:
                 if c not in save_df.columns: save_df[c] = ""
             
-            # [FIX] Safe Date Conversion for JSON serialization
+            # Safe Date Conversion
             save_df['Start_Date'] = save_df['Start_Date'].apply(lambda x: x.strftime('%Y-%m-%d') if isinstance(x, (date, datetime)) else "")
             save_df['End_Date'] = save_df['End_Date'].apply(lambda x: x.strftime('%Y-%m-%d') if isinstance(x, (date, datetime)) else "")
             
             # Clear & Write
-            ws_logs.clear()
-            ws_logs.append_row(cols_to_save)
+            ws_logs.clear() # ล้างของเก่าทิ้ง
+            ws_logs.append_row(cols_to_save) # ใส่หัวตาราง
             
             if not save_df.empty:
-                # เรียงคอลัมน์ให้ตรงเป๊ะก่อนบันทึก
                 rows_to_write = save_df[cols_to_save].values.tolist()
                 ws_logs.update(range_name="A2", values=rows_to_write)
-            
-            # --- SAVE EMPLOYEES ---
-            ws_emps = sh.worksheet('Employees')
-            ws_emps.clear()
-            ws_emps.append_row(['Name'])
-            emp_data = [[x] for x in st.session_state['employees']]
-            if emp_data: ws_emps.update(range_name="A2", values=emp_data)
-
-            # --- SAVE PROJECTS ---
-            ws_projs = sh.worksheet('Projects')
-            ws_projs.clear()
-            ws_projs.append_row(['Project'])
-            proj_data = [[x] for x in st.session_state['projects']]
-            if proj_data: ws_projs.update(range_name="A2", values=proj_data)
-            
         except Exception as e:
-            st.error(f"Error saving data: {e}")
+            print(f"Error saving LOGS: {e}") # บันทึก Log เงียบๆ ไม่ให้ User ตกใจ
+
+        # ---------------------------------------------------
+        # PART 2: EMPLOYEES (พนักงาน) - สำคัญสำหรับการลบ
+        # ---------------------------------------------------
+        try:
+            ws_emps = sh.worksheet('Employees')
+            ws_emps.clear() # ล้างของเก่าทิ้งให้หมดก่อน
+            ws_emps.append_row(['Name'])
+            
+            emp_data = [[x] for x in st.session_state['employees']]
+            if emp_data: 
+                ws_emps.update(range_name="A2", values=emp_data)
+        except Exception as e:
+            st.error(f"❌ Error saving Employees: {e}")
+
+        # ---------------------------------------------------
+        # PART 3: PROJECTS (โปรเจกต์)
+        # ---------------------------------------------------
+        try:
+            ws_projs = sh.worksheet('Projects')
+            ws_projs.clear() # ล้างของเก่าทิ้งให้หมดก่อน
+            ws_projs.append_row(['Project'])
+            
+            proj_data = [[x] for x in st.session_state['projects']]
+            if proj_data: 
+                ws_projs.update(range_name="A2", values=proj_data)
+        except Exception as e:
+            st.error(f"❌ Error saving Projects: {e}")
 
 def update_db(key, list_name):
     val = st.session_state.get(key)
@@ -160,6 +174,7 @@ def delete_db(key, list_name):
     val = st.session_state.get(key)
     if val and val in st.session_state[list_name]:
         st.session_state[list_name].remove(val)
+        # Cascading Delete
         if list_name == 'projects':
             df = st.session_state['data']
             st.session_state['data'] = df[df['Main_Task'] != val].reset_index(drop=True)
@@ -168,19 +183,21 @@ def delete_db(key, list_name):
              df = st.session_state['data']
              st.session_state['data'] = df[df['Employee'] != val].reset_index(drop=True)
              st.toast(f"👤 ลบพนักงาน '{val}' และงานของเขาแล้ว", icon="🗑️")
+        
         save_data()
+        st.cache_data.clear() # เคลียร์แคชกันเหนียว
 
 # ==========================================
 # 3. INITIALIZE STATE
 # ==========================================
-logs, emps, projs = load_data()
-
-if logs is not None:
-    st.session_state['data'] = logs
-    st.session_state['employees'] = emps
-    st.session_state['projects'] = projs
-else:
-    if 'data' not in st.session_state:
+if 'data' not in st.session_state:
+    logs, emps, projs = load_data()
+    
+    if logs is not None:
+        st.session_state['data'] = logs
+        st.session_state['employees'] = emps
+        st.session_state['projects'] = projs
+    else:
         st.session_state['employees'] = []
         st.session_state['projects'] = []
         st.session_state['data'] = pd.DataFrame(columns=[
@@ -212,7 +229,6 @@ def calculate_status_and_score(df):
             if isinstance(s_date, str) and s_date: s_date = datetime.strptime(s_date, '%Y-%m-%d').date()
             if isinstance(e_date, str) and e_date: e_date = datetime.strptime(e_date, '%Y-%m-%d').date()
             
-            # Check Valid Date
             if not isinstance(s_date, date) or not isinstance(e_date, date):
                 return "❓ วันที่ระบุไม่ครบ", 0
 
@@ -345,6 +361,18 @@ def submit_work_log():
 with st.sidebar:
     st.title("⚙️ ตั้งค่า")
     
+    # ปุ่มรีเฟรชข้อมูล
+    if st.button("🔄 รีเฟรชข้อมูลล่าสุด", use_container_width=True):
+        st.cache_data.clear()
+        logs, emps, projs = load_data()
+        if logs is not None:
+            st.session_state['data'] = logs
+            st.session_state['employees'] = emps
+            st.session_state['projects'] = projs
+            st.toast("อัพเดตข้อมูลล่าสุดแล้ว!", icon="✅")
+            st.rerun()
+
+    # Alert System
     df_alert = st.session_state['data']
     if not df_alert.empty and 'Status' in df_alert.columns:
         late_tasks = df_alert[df_alert['Status'].str.contains("ล่าช้า", na=False)]
@@ -412,7 +440,7 @@ elif menu == "📊 Gantt Chart (ติดตามงาน)":
             # Prepare Data for Chart
             df['Start'] = pd.to_datetime(df['Start_Date'], errors='coerce')
             df['End'] = pd.to_datetime(df['End_Date'], errors='coerce')
-            df = df.dropna(subset=['Start', 'End']) # ตัดแถวที่วันที่พังทิ้ง
+            df = df.dropna(subset=['Start', 'End'])
 
             df['Visual_End'] = df['End'] + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
             
@@ -472,7 +500,7 @@ elif menu == "📊 Gantt Chart (ติดตามงาน)":
                     }
                 )
             else: st.info("ไม่พบข้อมูล")
-        except Exception as e: st.error(f"Error displaying chart: {e}")
+        except Exception as e: st.error(f"Error: {e}")
     else: st.info("ไม่มีข้อมูล")
 
 elif menu == "🛠️ อัพเดตความก้าวหน้า":
@@ -480,7 +508,6 @@ elif menu == "🛠️ อัพเดตความก้าวหน้า":
     df_display = calculate_status_and_score(st.session_state['data'])
     
     if not df_display.empty:
-        # Table Selection
         event = st.dataframe(
             df_display[['Employee', 'Main_Task', 'Sub_Task', 'Progress', 'Status', 'End_Date', 'Issue']], 
             use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single-row",
@@ -497,17 +524,13 @@ elif menu == "🛠️ อัพเดตความก้าวหน้า":
             if st.button("📝 อัพเดต & บันทึก Log", type="primary"): 
                 update_task_dialog(idx, row_data)
         else: st.info("👆 กรุณาคลิกเลือกงานในตารางข้างบน เพื่อทำการอัพเดต")
-    else:
-        st.info("ยังไม่มีข้อมูลงานในระบบ")
+    else: st.info("ยังไม่มีข้อมูลงานในระบบ")
 
 elif menu == "🏆 ประเมินผลงาน":
     st.subheader("🏆 รายงานผลการปฏิบัติงาน")
     df_perf = calculate_status_and_score(st.session_state['data'].copy())
     if not df_perf.empty:
-        # Create Year Column
         df_perf['Year'] = pd.to_datetime(df_perf['End_Date'], errors='coerce').dt.year
-        
-        # Filter Years (Drop NaN)
         valid_years = df_perf['Year'].dropna().unique().tolist()
         if valid_years:
             years = sorted(valid_years, reverse=True)
@@ -515,21 +538,16 @@ elif menu == "🏆 ประเมินผลงาน":
             df_year = df_perf[df_perf['Year'] == sel_year]
             
             if not df_year.empty:
-                # Calculate Metrics
                 summary = df_year.groupby('Employee').agg(
                     Total=('Sub_Task', 'count'), 
-                    Avg=('Score', 'mean'), # Auto ignore NaN (Future tasks)
+                    Avg=('Score', 'mean'), 
                     Late=('Status', lambda x: x.str.contains('ล่าช้า').sum())
                 ).reset_index()
                 
-                # Fill NaN Avg with 0 for display
                 summary['Avg'] = summary['Avg'].fillna(0)
                 summary['OnTime%'] = ((summary['Total'] - summary['Late']) / summary['Total']) * 100
-                
-                # Grading
                 summary['Grade'] = summary['Avg'].apply(lambda x: "A 🌟" if x>=90 else "B 👍" if x>=80 else "C 👌" if x>=70 else "D ⚠️")
                 
-                # Winner
                 if not summary.empty:
                     best = summary.sort_values(by='Avg', ascending=False).iloc[0]
                     st.success(f"🥇 **Top Performer {sel_year}: {best['Employee']}** (Score: {best['Avg']:.1f})")
