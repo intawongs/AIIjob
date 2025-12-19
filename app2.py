@@ -3,33 +3,41 @@ import pandas as pd
 import plotly.express as px
 from datetime import datetime, date, timedelta
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
 
 # ตั้งค่าหน้าเว็บ
 st.set_page_config(page_title="Chronos: Project AI", layout="wide")
 st.title("🌌 Chronos Project Tracker (Online)")
 
 # ==========================================
-# 1. GOOGLE SHEETS CONNECTION (SECRETS)
+# 1. GOOGLE SHEETS CONNECTION (MODERN WAY)
 # ==========================================
 def connect_gsheet():
-    """เชื่อมต่อ Google Sheets โดยอ่านค่าจาก Streamlit Secrets"""
-    scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+    """เชื่อมต่อ Google Sheets แบบใหม่ (Native GSpread Auth)"""
     try:
-        # อ่านค่าจาก Secrets (บน Server) หรือไฟล์ .toml (Local)
+        # ตรวจสอบว่ามี Secrets ไหม (บน Cloud)
         if "gcp_service_account" in st.secrets:
+            # แปลง Secrets เป็น Dict แล้ว Login เลย (ไม่ต้องใช้ oauth2client)
             creds_dict = dict(st.secrets["gcp_service_account"])
-            creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-        else:
-            # กรณีรันในเครื่องตัวเองแบบมีไฟล์ json (เผื่อไว้)
-            creds = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
             
-        client = gspread.authorize(creds)
-        # ชื่อ Sheet ที่สร้างไว้ใน Google Sheets
+            # **แก้บั๊ก Private Key**: บางที Streamlit แปลง \n ผิด
+            # เราจะบังคับเปลี่ยน \n ให้เป็น enter จริงๆ
+            if "\\n" in creds_dict["private_key"]:
+                creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+            
+            client = gspread.service_account_from_dict(creds_dict)
+        else:
+            # กรณีรันในเครื่อง (Local)
+            client = gspread.service_account(filename='credentials.json')
+
+        # เปิด Sheet
         sh = client.open("Chronos_Data") 
         return sh
+        
     except Exception as e:
         st.error(f"❌ เชื่อมต่อ Google Sheets ไม่ได้: {e}")
+        # เพิ่มคำแนะนำแก้ปัญหา
+        if "SpreadsheetNotFound" in str(e):
+            st.warning("👉 บอทหาไฟล์ 'Chronos_Data' ไม่เจอ! อย่าลืมกด Share ไฟล์ให้ Email ของบอทด้วย")
         return None
 
 # ==========================================
@@ -39,7 +47,6 @@ def load_data():
     sh = connect_gsheet()
     if sh:
         try:
-            # ดึงข้อมูลจาก 3 Tabs
             ws_logs = sh.worksheet('Logs')
             ws_emps = sh.worksheet('Employees')
             ws_projs = sh.worksheet('Projects')
@@ -48,25 +55,20 @@ def load_data():
             df_emps = pd.DataFrame(ws_emps.get_all_records())
             df_projs = pd.DataFrame(ws_projs.get_all_records())
 
-            # จัดการ Format วันที่
             if not df_logs.empty:
-                # แปลงวันที่จาก String เป็น Date Object
                 for col in ['Start_Date', 'End_Date']:
                     if col in df_logs.columns:
                         df_logs[col] = pd.to_datetime(df_logs[col], errors='coerce').dt.date
 
-                # เติมคอลัมน์ที่ขาด (กัน Error)
                 required_cols = ['Dependency', 'Progress', 'Score', 'Status', 'Issue', 'Output']
                 for c in required_cols:
                     if c not in df_logs.columns:
                         df_logs[c] = 0 if c in ['Progress', 'Score'] else ""
 
-                # Handle Null Values
                 df_logs['Issue'] = df_logs['Issue'].fillna("").astype(str)
                 df_logs['Output'] = df_logs['Output'].fillna("").astype(str)
                 df_logs['Status'] = df_logs['Status'].fillna("⏳ กำลังดำเนินการ")
 
-            # เตรียม List สำหรับ Dropdown
             emp_list = df_emps['Name'].tolist() if not df_emps.empty and 'Name' in df_emps.columns else []
             proj_list = df_projs['Project'].tolist() if not df_projs.empty and 'Project' in df_projs.columns else []
 
@@ -81,7 +83,6 @@ def save_data():
     sh = connect_gsheet()
     if sh:
         try:
-            # --- SAVE LOGS ---
             ws_logs = sh.worksheet('Logs')
             cols_to_save = [
                 'Employee', 'Main_Task', 'Sub_Task', 
@@ -91,7 +92,6 @@ def save_data():
             ]
             
             save_df = st.session_state['data'].copy()
-            # แปลงวันที่กลับเป็น String เพื่อบันทึกลง Sheet
             save_df['Start_Date'] = save_df['Start_Date'].astype(str).replace('NaT', '')
             save_df['End_Date'] = save_df['End_Date'].astype(str).replace('NaT', '')
             
@@ -103,14 +103,12 @@ def save_data():
             if not save_df.empty:
                 ws_logs.update([save_df[cols_to_save].values.tolist()], "A2")
             
-            # --- SAVE EMPLOYEES ---
             ws_emps = sh.worksheet('Employees')
             ws_emps.clear()
             ws_emps.append_row(['Name'])
             emp_data = [[x] for x in st.session_state['employees']]
             if emp_data: ws_emps.update(emp_data, "A2")
 
-            # --- SAVE PROJECTS ---
             ws_projs = sh.worksheet('Projects')
             ws_projs.clear()
             ws_projs.append_row(['Project'])
@@ -130,7 +128,6 @@ def delete_db(key, list_name):
     val = st.session_state.get(key)
     if val and val in st.session_state[list_name]:
         st.session_state[list_name].remove(val)
-        # Cascading Delete
         if list_name == 'projects':
             df = st.session_state['data']
             st.session_state['data'] = df[df['Main_Task'] != val].reset_index(drop=True)
@@ -176,7 +173,6 @@ def calculate_status_and_score(df):
     
     def get_details(row):
         try:
-            # Safe date conversion
             s_date = row['Start_Date']
             e_date = row['End_Date']
             if isinstance(s_date, str): s_date = datetime.strptime(s_date, '%Y-%m-%d').date()
@@ -187,7 +183,7 @@ def calculate_status_and_score(df):
             if is_completed: 
                 return "✅ เสร็จสิ้น", 100
             elif today < s_date: 
-                return "🔜 ยังไม่ถึงกำหนดเริ่ม", None # งานอนาคต ไม่คิดคะแนน
+                return "🔜 ยังไม่ถึงกำหนดเริ่ม", None
             elif today > e_date: 
                 return "🔥 ล่าช้า (Late)", row['Progress']
             else: 
@@ -210,7 +206,6 @@ def update_task_dialog(index, row_data):
     st.write(f"**งาน:** {row_data['Sub_Task']} | **ผู้รับผิดชอบ:** {row_data['Employee']}")
     st.markdown("---")
     
-    # Update Fields
     new_prog = st.slider("ความคืบหน้าปัจจุบัน (%)", 0, 100, int(row_data['Progress']))
     new_output = st.text_input("ผลลัพธ์ / ลิงก์งาน (Output)", value=str(row_data['Output']))
     
@@ -219,7 +214,6 @@ def update_task_dialog(index, row_data):
     
     current_issue_log = str(row_data['Issue'])
     
-    # เลือกโหมดบันทึก
     mode = st.radio("โหมดบันทึก:", ["➕ เพิ่มบันทึกใหม่ (Append)", "✏️ แก้ไขประวัติทั้งหมด (Edit All)"], horizontal=True)
 
     final_log_to_save = current_issue_log
@@ -228,7 +222,6 @@ def update_task_dialog(index, row_data):
         if current_issue_log:
             with st.expander("ดูประวัติบันทึกย้อนหลัง", expanded=False):
                 st.info(current_issue_log)
-        
         st.caption(f"📅 บันทึกของวันที่: {datetime.now().strftime('%d/%m/%Y')}")
         new_log_entry = st.text_area("พิมพ์สิ่งที่ทำวันนี้:", height=100)
     else:
@@ -237,7 +230,6 @@ def update_task_dialog(index, row_data):
 
     col1, col2 = st.columns(2)
     if col1.button("บันทึกข้อมูล", type="primary", use_container_width=True):
-        # Logic รวมข้อความ
         if "เพิ่มบันทึกใหม่" in mode:
             if new_log_entry.strip():
                 timestamp = datetime.now().strftime("%d/%m")
@@ -245,12 +237,11 @@ def update_task_dialog(index, row_data):
         else:
             final_log_to_save = full_log_edit
             
-        # Update Session State
         st.session_state['data'].at[index, 'Progress'] = new_prog
         st.session_state['data'].at[index, 'Output'] = new_output
         st.session_state['data'].at[index, 'Issue'] = final_log_to_save.strip()
         
-        save_data() # Save to Google Sheet
+        save_data()
         st.rerun()
         
     if col2.button("ยกเลิก", use_container_width=True):
@@ -302,7 +293,6 @@ def submit_work_log():
         st.session_state['data'] = pd.concat([st.session_state['data'], new_df], ignore_index=True)
         save_data()
         
-        # Reset Inputs
         st.session_state.k_sub = ""
         st.session_state.k_out = ""
         st.session_state.k_issue = ""
@@ -318,7 +308,6 @@ def submit_work_log():
 with st.sidebar:
     st.title("⚙️ ตั้งค่า")
     
-    # Alert System
     df_alert = st.session_state['data']
     if not df_alert.empty and 'Status' in df_alert.columns:
         late_tasks = df_alert[df_alert['Status'].str.contains("ล่าช้า", na=False)]
@@ -329,13 +318,10 @@ with st.sidebar:
         else: st.success("✨ งานทุกอย่างเป็นไปตามกำหนด")
     
     st.markdown("---")
-    
-    # Filters
     all_emps = st.session_state['employees']
     selected_emps = st.multiselect("เลือกพนักงาน:", options=all_emps, default=all_emps)
     st.markdown("---")
 
-    # DB Management
     with st.expander("👤 จัดการรายชื่อพนักงาน", expanded=False):
         st.text_input("เพิ่มชื่อ", key='new_emp', on_change=update_db, args=('new_emp', 'employees'))
         if st.session_state['employees']:
