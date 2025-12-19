@@ -6,7 +6,7 @@ import gspread
 
 # ตั้งค่าหน้าเว็บ
 st.set_page_config(page_title="Chronos: Project AI", layout="wide")
-st.title("🌌 Chronos Project Tracker (Online)")
+st.title("🌌 AII Project Tracker")
 
 # ==========================================
 # 1. GOOGLE SHEETS CONNECTION
