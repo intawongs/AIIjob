@@ -63,10 +63,13 @@ def load_data():
             if not df_logs.empty:
                 for col in ['Start_Date', 'End_Date']:
                     df_logs[col] = pd.to_datetime(df_logs[col], errors='coerce').dt.date
+                
+                # Force String conversion for text fields
+                df_logs['Issue'] = df_logs['Issue'].astype(str).replace('nan', '')
+                df_logs['Output'] = df_logs['Output'].astype(str).replace('nan', '')
+                
                 df_logs['Progress'] = df_logs['Progress'].fillna(0)
                 df_logs['Score'] = df_logs['Score'].fillna(0)
-                df_logs['Issue'] = df_logs['Issue'].fillna("").astype(str)
-                df_logs['Output'] = df_logs['Output'].fillna("").astype(str)
                 df_logs['Status'] = df_logs['Status'].fillna("⏳ กำลังดำเนินการ")
 
             emp_list = pd.DataFrame(data_emps)['Name'].tolist() if data_emps else []
@@ -82,6 +85,11 @@ def save_data():
         try:
             ws_logs = sh.worksheet('Logs')
             save_df = st.session_state['data'].copy()
+            
+            # Prepare Data
+            save_df = save_df.fillna("") 
+            save_df['Issue'] = save_df['Issue'].astype(str)
+            save_df['Output'] = save_df['Output'].astype(str)
             save_df['Start_Date'] = save_df['Start_Date'].apply(lambda x: x.strftime('%Y-%m-%d') if isinstance(x, (date, datetime)) else "")
             save_df['End_Date'] = save_df['End_Date'].apply(lambda x: x.strftime('%Y-%m-%d') if isinstance(x, (date, datetime)) else "")
             
@@ -193,7 +201,12 @@ def update_task_dialog(index, row_data):
     new_output = st.text_input("ผลลัพธ์ / ลิงก์", value=str(row_data['Output']))
     
     st.markdown("---")
-    current_log = str(row_data['Issue'])
+    
+    # Handle Issue
+    issue_val = str(row_data['Issue'])
+    if issue_val == "nan" or issue_val == "None": issue_val = ""
+    
+    current_log = issue_val
     mode = st.radio("Log Book:", ["➕ เพิ่มบันทึก", "✏️ แก้ไขทั้งหมด"], horizontal=True)
     
     final_log = current_log
@@ -356,25 +369,25 @@ with tab2:
     else: st.info("ไม่มีข้อมูล")
 
 with tab3:
-    # [จุดที่แก้] เปลี่ยนจาก "เลือกปุ๊บเด้งปั๊บ" เป็น "กดปุ่มเพื่อแก้ไข"
     st.info("👆 คลิกเลือกงานในตาราง -> จะมีปุ่ม 'แก้ไข' โผล่มาด้านล่าง")
     df = calculate_status_and_score(st.session_state['data'])
     if not df.empty:
         event = st.dataframe(
-            df[['Sub_Task', 'Employee', 'Progress', 'Status']], 
+            # [FIXED] เพิ่มคอลัมน์ Issue กลับเข้ามาตรงนี้
+            df[['Sub_Task', 'Employee', 'Issue', 'Progress', 'Status']], 
             use_container_width=True, on_select="rerun", selection_mode="single-row", hide_index=True,
             column_config={
                 "Sub_Task": st.column_config.TextColumn(THAI_COLS["Sub_Task"]),
                 "Employee": st.column_config.TextColumn(THAI_COLS["Employee"]),
+                # [FIXED] ตั้งค่าหัวตารางสำหรับ Issue
+                "Issue": st.column_config.TextColumn(THAI_COLS["Issue"], width="medium"),
                 "Progress": st.column_config.ProgressColumn(THAI_COLS["Progress"], format="%d%%"),
                 "Status": st.column_config.TextColumn(THAI_COLS["Status"])
             }
         )
-        # ตรวจสอบว่ามีการเลือก และต้องกดปุ่มถึงจะเปิด Dialog
         if event.selection.rows:
             idx = event.selection.rows[0]
             selected_task_name = df.iloc[idx]['Sub_Task']
-            # เพิ่มปุ่มกด เพื่อป้องกันการเด้งเองตอนหน้าจอ Refresh
             if st.button(f"✏️ แก้ไขงาน: {selected_task_name}", type="primary", use_container_width=True):
                 update_task_dialog(idx, df.iloc[idx])
     else: st.info("ไม่มีงาน")
