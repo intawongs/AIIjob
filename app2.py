@@ -3,19 +3,38 @@ import pandas as pd
 import plotly.express as px
 from datetime import datetime, date, timedelta
 import gspread
-import time
 
 # ---------------------------------------------------------
-# 1. การตั้งค่า (CONFIGURATION)
+# 1. การตั้งค่า (CONFIGURATION) - แบบ Hybrid (Auto Sidebar)
 # ---------------------------------------------------------
-st.set_page_config(page_title="ระบบติดตามงาน AII", layout="wide")
-st.title("🌌 ระบบติดตามงาน AII (AII Project Tracker)")
+# [แก้] เปลี่ยน initial_sidebar_state เป็น "auto" เพื่อให้คอมกางออก แต่มือถือหุบเอง
+st.set_page_config(page_title="ระบบติดตามงาน AII", layout="wide", initial_sidebar_state="auto")
+
+# CSS ปรับแต่งให้ดูดีทั้ง Mobile และ Desktop
+st.markdown("""
+    <style>
+        /* ลดพื้นที่ว่างด้านบน */
+        .block-container {
+            padding-top: 1.5rem;
+            padding-bottom: 3rem;
+        }
+        /* ปรับ Tab ให้สวยงาม */
+        button[data-baseweb="tab"] {
+            border-radius: 5px;
+            margin: 0 2px;
+        }
+        /* ซ่อน Footer และ Hamburger Menu */
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+    </style>
+""", unsafe_allow_html=True)
+
+st.title("🌌 AII Project Tracker")
 
 # ==========================================
 # 2. เชื่อมต่อ GOOGLE SHEETS
 # ==========================================
 def connect_gsheet():
-    """เชื่อมต่อ Google Sheets แบบ Native GSpread Auth"""
     try:
         if "gcp_service_account" in st.secrets:
             creds_dict = dict(st.secrets["gcp_service_account"])
@@ -24,15 +43,13 @@ def connect_gsheet():
             client = gspread.service_account_from_dict(creds_dict)
         else:
             client = gspread.service_account(filename='credentials.json')
-
-        sh = client.open("Chronos_Data") 
-        return sh
+        return client.open("Chronos_Data") 
     except Exception as e:
-        st.error(f"❌ ไม่สามารถเชื่อมต่อ Google Sheets: {e}")
+        st.error(f"❌ เชื่อมต่อ Google Sheets ไม่ได้: {e}")
         return None
 
 # ==========================================
-# 3. ระบบจัดการข้อมูล (LOAD & SAVE)
+# 3. DATABASE LOGIC
 # ==========================================
 def load_data():
     sh = connect_gsheet()
@@ -47,13 +64,9 @@ def load_data():
             data_projs = ws_projs.get_all_records()
 
             df_logs = pd.DataFrame(data_logs)
-            df_emps = pd.DataFrame(data_emps)
-            df_projs = pd.DataFrame(data_projs)
-
-            # คอลัมน์ที่ต้องมี (ภาษาอังกฤษไว้เก็บข้อมูล แต่แสดงผลไทย)
             expected_cols = ['Employee', 'Main_Task', 'Sub_Task', 'Start_Date', 'End_Date', 'Output', 'Issue', 'Dependency', 'Progress', 'Score', 'Status']
-            if df_logs.empty:
-                df_logs = pd.DataFrame(columns=expected_cols)
+            
+            if df_logs.empty: df_logs = pd.DataFrame(columns=expected_cols)
             else:
                 for col in expected_cols:
                     if col not in df_logs.columns: df_logs[col] = None
@@ -67,20 +80,16 @@ def load_data():
                 df_logs['Output'] = df_logs['Output'].fillna("").astype(str)
                 df_logs['Status'] = df_logs['Status'].fillna("⏳ กำลังดำเนินการ")
 
-            emp_list = df_emps['Name'].tolist() if not df_emps.empty and 'Name' in df_emps.columns else []
-            proj_list = df_projs['Project'].tolist() if not df_projs.empty and 'Project' in df_projs.columns else []
+            emp_list = pd.DataFrame(data_emps)['Name'].tolist() if data_emps else []
+            proj_list = pd.DataFrame(data_projs)['Project'].tolist() if data_projs else []
 
             return df_logs, emp_list, proj_list
-        except Exception as e:
-            st.error(f"เกิดข้อผิดพลาดในการอ่านข้อมูล: {e}")
-            return pd.DataFrame(columns=['Employee', 'Main_Task', 'Sub_Task', 'Start_Date', 'End_Date', 'Output', 'Issue', 'Dependency', 'Progress', 'Score', 'Status']), [], []
+        except: return pd.DataFrame(columns=expected_cols), [], []
     return pd.DataFrame(), [], []
 
 def save_data():
-    """บันทึกข้อมูลแบบ Atomic Write (เขียนทับรวดเดียว)"""
     sh = connect_gsheet()
     if sh:
-        # บันทึกงาน (LOGS)
         try:
             ws_logs = sh.worksheet('Logs')
             save_df = st.session_state['data'].copy()
@@ -96,22 +105,18 @@ def save_data():
             
             ws_logs.clear()
             ws_logs.update(range_name="A1", values=all_values)
-        except Exception as e: print(f"Log Save Error: {e}")
+        except Exception as e: print(f"Log Error: {e}")
 
-        # บันทึกพนักงาน (EMPLOYEES)
         try:
             ws_emps = sh.worksheet('Employees')
-            emp_data = [['Name']] + [[x] for x in st.session_state['employees']]
             ws_emps.clear()
-            ws_emps.update(range_name="A1", values=emp_data)
+            ws_emps.update(range_name="A1", values=[['Name']] + [[x] for x in st.session_state['employees']])
         except: pass
 
-        # บันทึกโปรเจกต์ (PROJECTS)
         try:
             ws_projs = sh.worksheet('Projects')
-            proj_data = [['Project']] + [[x] for x in st.session_state['projects']]
             ws_projs.clear()
-            ws_projs.update(range_name="A1", values=proj_data)
+            ws_projs.update(range_name="A1", values=[['Project']] + [[x] for x in st.session_state['projects']])
         except: pass
 
 def update_db(key, list_name):
@@ -119,7 +124,7 @@ def update_db(key, list_name):
     if val and val not in st.session_state[list_name]:
         st.session_state[list_name].append(val)
         save_data()
-        st.session_state[key] = "" # ล้างช่องกรอกข้อมูล
+        st.session_state[key] = ""
         st.toast(f"✅ เพิ่ม '{val}' เรียบร้อย", icon="💾")
 
 def delete_db(key, list_name):
@@ -137,7 +142,7 @@ def delete_db(key, list_name):
         st.toast(f"🗑️ ลบ '{val}' แล้ว", icon="🗑️")
 
 # ==========================================
-# 4. ตั้งค่าเริ่มต้น (INITIALIZE STATE)
+# 4. INITIALIZE
 # ==========================================
 if 'data' not in st.session_state:
     logs, emps, projs = load_data()
@@ -156,7 +161,7 @@ for k, v in zip(keys, defaults):
     if k not in st.session_state: st.session_state[k] = v
 
 # ==========================================
-# 5. ฟังก์ชันช่วยคำนวณ (HELPER)
+# 5. HELPER
 # ==========================================
 def calculate_status_and_score(df):
     if df.empty: return df
@@ -181,77 +186,59 @@ def calculate_status_and_score(df):
 
 st.session_state['data'] = calculate_status_and_score(st.session_state['data'])
 
-# ตัวแปรสำหรับตั้งชื่อหัวตารางภาษาไทย
 THAI_COLS = {
-    "Employee": "พนักงาน",
-    "Main_Task": "โปรเจกต์",
-    "Sub_Task": "ชื่องาน",
-    "Progress": "ความคืบหน้า",
-    "Status": "สถานะ",
-    "End_Date": "กำหนดส่ง",
-    "Issue": "บันทึกล่าสุด",
-    "Score": "คะแนน",
-    "Total": "งานทั้งหมด",
-    "Avg": "คะแนนเฉลี่ย",
-    "OnTime%": "ส่งตรงเวลา (%)",
-    "Grade": "เกรด",
-    "Late": "งานล่าช้า"
+    "Employee": "พนักงาน", "Main_Task": "โปรเจกต์", "Sub_Task": "ชื่องาน",
+    "Progress": "ความคืบหน้า", "Status": "สถานะ", "End_Date": "กำหนดส่ง",
+    "Issue": "บันทึก", "Score": "คะแนน", "Total": "งานทั้งหมด",
+    "Avg": "คะแนนเฉลี่ย", "OnTime%": "ส่งตรงเวลา (%)", "Grade": "เกรด", "Late": "งานล่าช้า"
 }
 
 # ==========================================
-# 6. หน้าต่างแก้ไขงาน (DIALOG)
+# 6. DIALOG
 # ==========================================
-@st.dialog("📝 จัดการงาน (แก้ไข / ลบ)")
+@st.dialog("📝 จัดการงาน")
 def update_task_dialog(index, row_data):
-    st.write(f"**งาน:** {row_data['Sub_Task']}")
-    st.write(f"**ผู้รับผิดชอบ:** {row_data['Employee']}")
-    st.markdown("---")
+    st.caption(f"{row_data['Sub_Task']} ({row_data['Employee']})")
     
     new_prog = st.slider("ความคืบหน้า (%)", 0, 100, int(row_data['Progress']))
-    new_output = st.text_input("ผลลัพธ์ / ลิงก์งาน", value=str(row_data['Output']))
+    new_output = st.text_input("ผลลัพธ์ / ลิงก์", value=str(row_data['Output']))
     
     st.markdown("---")
-    st.caption("สมุดบันทึก (Log Book)")
     current_log = str(row_data['Issue'])
-    mode = st.radio("โหมดบันทึก:", ["➕ เพิ่มบันทึกใหม่", "✏️ แก้ไขประวัติทั้งหมด"], horizontal=True)
+    mode = st.radio("Log Book:", ["➕ เพิ่มบันทึก", "✏️ แก้ไขทั้งหมด"], horizontal=True)
     
     final_log = current_log
     if "เพิ่มบันทึก" in mode:
         if current_log: st.info(current_log)
-        new_entry = st.text_area("บันทึกวันนี้:", height=80, placeholder="พิมพ์สิ่งที่ทำไปวันนี้...")
+        new_entry = st.text_area("บันทึกวันนี้:", height=80)
     else:
-        full_edit = st.text_area("แก้ไขประวัติทั้งหมด:", value=current_log, height=150)
+        full_edit = st.text_area("แก้ไขประวัติ:", value=current_log, height=150)
 
     st.markdown("---")
     
-    c1, c2 = st.columns([1, 1])
-    with c1:
-        if st.button("💾 บันทึกการแก้ไข", type="primary", use_container_width=True):
-            if "เพิ่มบันทึก" in mode:
-                if new_entry.strip():
-                    ts = datetime.now().strftime("%d/%m")
-                    final_log += f"\n- [{ts}] {new_entry.strip()}"
-            else: final_log = full_edit
+    c1, c2 = st.columns(2)
+    if c1.button("💾 บันทึก", type="primary", use_container_width=True):
+        if "เพิ่มบันทึก" in mode and new_entry.strip():
+            ts = datetime.now().strftime("%d/%m")
+            final_log += f"\n- [{ts}] {new_entry.strip()}"
+        elif "แก้ไข" in mode: final_log = full_edit
+        
+        st.session_state['data'].at[index, 'Progress'] = new_prog
+        st.session_state['data'].at[index, 'Output'] = new_output
+        st.session_state['data'].at[index, 'Issue'] = final_log.strip()
+        save_data()
+        st.toast("บันทึกแล้ว", icon="💾")
+        st.rerun()
             
-            st.session_state['data'].at[index, 'Progress'] = new_prog
-            st.session_state['data'].at[index, 'Output'] = new_output
-            st.session_state['data'].at[index, 'Issue'] = final_log.strip()
-            save_data()
-            st.toast("บันทึกข้อมูลเรียบร้อย", icon="💾")
-            st.rerun()
-            
-    with c2:
-        if st.button("ยกเลิก", use_container_width=True):
-            st.rerun()
-
-    if st.button("🗑️ ลบงานนี้ทิ้ง", type="secondary", use_container_width=True):
+    if c2.button("ยกเลิก", use_container_width=True): st.rerun()
+    if st.button("🗑️ ลบงานนี้", type="secondary", use_container_width=True):
         st.session_state['data'] = st.session_state['data'].drop(index).reset_index(drop=True)
         save_data() 
-        st.toast("🗑️ ลบงานเรียบร้อยแล้ว", icon="🗑️")
+        st.toast("ลบงานแล้ว", icon="🗑️")
         st.rerun()
 
 # ==========================================
-# 7. ส่วนแสดงผลหลัก (UI MAIN)
+# 7. MAIN UI (HYBRID)
 # ==========================================
 def auto_update_date():
     p, d = st.session_state.get('k_proj_sel'), st.session_state.get('k_dep_sel')
@@ -279,20 +266,18 @@ def submit_work():
             })
         st.session_state['data'] = pd.concat([st.session_state['data'], calculate_status_and_score(pd.DataFrame(new_rows))], ignore_index=True)
         save_data()
-        
-        # Clear Inputs
         st.session_state.k_sub = ""
         st.session_state.k_out = ""
         st.session_state.k_issue = ""
         st.session_state.k_prog = 0
         st.session_state.k_emps_multi = []
-        st.toast(f"✅ บันทึกงานให้ {len(emps)} คนเรียบร้อย", icon="💾")
-    else: st.toast("❌ ข้อมูลไม่ครบ กรุณาตรวจสอบอีกครั้ง", icon="⚠️")
+        st.toast(f"✅ เพิ่มงานเรียบร้อย ({len(emps)} คน)", icon="💾")
+    else: st.toast("❌ ข้อมูลไม่ครบ", icon="⚠️")
 
-# --- SIDEBAR ---
+# --- SIDEBAR (Auto Collapse on Mobile) ---
 with st.sidebar:
-    st.title("⚙️ ตั้งค่า")
-    if st.button("🔄 รีเฟรชข้อมูลล่าสุด", use_container_width=True):
+    st.header("⚙️ ตั้งค่า")
+    if st.button("🔄 รีเฟรชข้อมูล", use_container_width=True):
         st.cache_data.clear()
         logs, emps, projs = load_data()
         if logs is not None:
@@ -301,52 +286,54 @@ with st.sidebar:
             st.session_state['projects'] = projs
             st.rerun()
 
-    st.markdown("---")
+    st.divider()
     all_emps = st.session_state['employees']
-    sel_emps = st.multiselect("กรองชื่อพนักงาน:", all_emps, default=all_emps)
-    st.markdown("---")
+    sel_emps = st.multiselect("กรองชื่อ:", all_emps, default=all_emps)
     
-    with st.expander("👤 จัดการพนักงาน"):
+    with st.expander("👤 จัดการคน"):
         st.text_input("เพิ่มชื่อ", key='new_emp', on_change=update_db, args=('new_emp', 'employees'))
         if st.session_state['employees']:
             st.selectbox("ลบชื่อ", st.session_state['employees'], key='del_emp')
-            st.button("ลบรายชื่อ", on_click=delete_db, args=('del_emp', 'employees'))
+            st.button("ลบคน", on_click=delete_db, args=('del_emp', 'employees'))
             
-    with st.expander("📂 จัดการโปรเจกต์"):
+    with st.expander("📂 จัดการงาน"):
         st.text_input("เพิ่มงาน", key='new_proj', on_change=update_db, args=('new_proj', 'projects'))
         if st.session_state['projects']:
             st.selectbox("ลบงาน", st.session_state['projects'], key='del_proj')
-            st.button("ลบโปรเจกต์", on_click=delete_db, args=('del_proj', 'projects'))
+            st.button("ลบงาน", on_click=delete_db, args=('del_proj', 'projects'))
 
-# --- MAIN MENU ---
-menu = st.radio("", ["📝 ลงทะเบียนงาน", "📊 แผนผังงาน (Gantt Chart)", "🛠️ อัพเดตความก้าวหน้า", "🏆 ประเมินผลงาน"], horizontal=True)
-st.divider()
+# --- MAIN TABS ---
+tab1, tab2, tab3, tab4 = st.tabs(["📝 ลงทะเบียน", "📊 แผนผัง", "🛠️ อัพเดต", "🏆 ผลงาน"])
 
-if menu == "📝 ลงทะเบียนงาน":
-    c1, c2 = st.columns([1, 1.5])
-    with c1:
-        st.subheader("1. รายละเอียดงาน")
+with tab1:
+    with st.container():
         p = st.selectbox("โปรเจกต์", st.session_state['projects'] or ["ไม่มีข้อมูล"], key="k_proj_sel")
         st.text_input("ชื่องาน", key="k_sub", placeholder="เช่น ออกแบบ UX/UI")
+        
         df = st.session_state['data']
-        dep_opt = ["- เริ่มต้นใหม่ (ไม่รอใคร) -"]
+        dep_opt = ["- เริ่มใหม่ -"]
         if not df.empty and p != "ไม่มีข้อมูล":
             dep_opt += df[df['Main_Task'] == p].sort_values('End_Date', ascending=False)['Sub_Task'].unique().tolist()
         st.selectbox("รอต่องานไหน?", dep_opt, key="k_dep_sel", on_change=auto_update_date)
-    with c2:
-        st.subheader("2. มอบหมาย")
+        
         st.multiselect("ผู้รับผิดชอบ", st.session_state['employees'], key="k_emps_multi")
-        c2a, c2b = st.columns(2)
-        with c2a: st.date_input("เริ่มวันที่", key="k_d_start")
-        with c2b: st.date_input("ถึงวันที่", key="k_d_end")
-        st.slider("ความคืบหน้า (%)", 0, 100, key="k_prog")
-        st.text_area("ผลลัพธ์ / ลิงก์งาน", key="k_out", height=68)
-        st.text_area("บันทึกช่วยจำ (Log Book)", key="k_issue", height=68)
+        
+        c1, c2 = st.columns(2)
+        with c1: st.date_input("เริ่ม", key="k_d_start")
+        with c2: st.date_input("ถึง", key="k_d_end")
+        
+        st.slider("ความคืบหน้า", 0, 100, key="k_prog")
+        
+        with st.expander("เพิ่มเติม (ผลลัพธ์/Log)"):
+            st.text_area("ผลลัพธ์", key="k_out", height=68)
+            st.text_area("Log Book", key="k_issue", height=68)
+            
         st.button("บันทึกข้อมูล", on_click=submit_work, type="primary", use_container_width=True)
 
-elif menu == "📊 แผนผังงาน (Gantt Chart)":
+with tab2:
     df = calculate_status_and_score(st.session_state['data'].copy())
     if not df.empty: df = df[df['Employee'].isin(sel_emps)]
+    
     if not df.empty:
         df['Start'] = pd.to_datetime(df['Start_Date'], errors='coerce')
         df['End'] = pd.to_datetime(df['End_Date'], errors='coerce')
@@ -354,89 +341,79 @@ elif menu == "📊 แผนผังงาน (Gantt Chart)":
         df['Visual_End'] = df['End'] + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
         df['Label'] = df['Progress'].astype(str) + "%"
         
-        mode = st.radio("มุมมอง:", ["ดูตามพนักงาน", "ดูตามงาน"], horizontal=True)
-        y_ax = "Employee" if "พนักงาน" in mode else "Sub_Task"
+        chart_height = 300 + (len(df) * 30)
         
-        fig = px.timeline(df, x_start="Start", x_end="Visual_End", y=y_ax, color="Main_Task", text="Label", height=400 + (len(df)*20))
+        fig = px.timeline(df, x_start="Start", x_end="Visual_End", y="Sub_Task", color="Employee", text="Label", height=chart_height)
         fig.update_yaxes(autorange="reversed", title="")
-        fig.add_vline(x=datetime.now().timestamp()*1000, line_dash="dash", line_color="red", annotation_text="วันนี้")
+        fig.update_layout(
+            margin=dict(l=10, r=10, t=10, b=10),
+            legend=dict(orientation="h", y=-0.2)
+        )
+        fig.add_vline(x=datetime.now().timestamp()*1000, line_dash="dash", line_color="red")
         st.plotly_chart(fig, use_container_width=True)
         
-        def highlight(row): return ['background-color: #ffcccc'] * len(row) if "ล่าช้า" in str(row['Status']) else [''] * len(row)
-        st.write("### 📋 รายละเอียด")
-        st.dataframe(
-            df[['Employee', 'Main_Task', 'Sub_Task', 'Progress', 'Status', 'End_Date']].style.apply(highlight, axis=1), 
-            use_container_width=True,
-            column_config={
-                "Employee": st.column_config.TextColumn(THAI_COLS["Employee"]),
-                "Main_Task": st.column_config.TextColumn(THAI_COLS["Main_Task"]),
-                "Sub_Task": st.column_config.TextColumn(THAI_COLS["Sub_Task"]),
-                "Progress": st.column_config.ProgressColumn(THAI_COLS["Progress"], format="%d%%", min_value=0, max_value=100),
-                "Status": st.column_config.TextColumn(THAI_COLS["Status"]),
-                "End_Date": st.column_config.DateColumn(THAI_COLS["End_Date"]),
-            }
-        )
-    else: st.info("ยังไม่มีข้อมูล")
+        with st.expander("ดูตารางรายละเอียด"):
+            def highlight(row): return ['background-color: #ffcccc'] * len(row) if "ล่าช้า" in str(row['Status']) else [''] * len(row)
+            st.dataframe(
+                df[['Sub_Task', 'Employee', 'Progress', 'Status', 'End_Date']].style.apply(highlight, axis=1), 
+                use_container_width=True, hide_index=True,
+                column_config={
+                    "Sub_Task": st.column_config.TextColumn(THAI_COLS["Sub_Task"]),
+                    "Employee": st.column_config.TextColumn(THAI_COLS["Employee"]),
+                    "Progress": st.column_config.ProgressColumn(THAI_COLS["Progress"], format="%d%%"),
+                    "End_Date": st.column_config.DateColumn(THAI_COLS["End_Date"])
+                }
+            )
+    else: st.info("ไม่มีข้อมูล")
 
-elif menu == "🛠️ อัพเดตความก้าวหน้า":
-    st.info("💡 คลิกเลือกงานในตาราง -> กดปุ่มแก้ไขด้านล่าง (มีปุ่มลบงานในนั้น)")
+with tab3:
+    st.info("👆 แตะที่งานเพื่อแก้ไข")
     df = calculate_status_and_score(st.session_state['data'])
     if not df.empty:
         event = st.dataframe(
-            df[['Employee', 'Sub_Task', 'Progress', 'Status', 'End_Date']], 
-            use_container_width=True, on_select="rerun", selection_mode="single-row",
+            df[['Sub_Task', 'Employee', 'Progress', 'Status']], 
+            use_container_width=True, on_select="rerun", selection_mode="single-row", hide_index=True,
             column_config={
-                "Employee": st.column_config.TextColumn(THAI_COLS["Employee"]),
                 "Sub_Task": st.column_config.TextColumn(THAI_COLS["Sub_Task"]),
-                "Progress": st.column_config.ProgressColumn(THAI_COLS["Progress"], format="%d%%", min_value=0, max_value=100),
-                "Status": st.column_config.TextColumn(THAI_COLS["Status"]),
-                "End_Date": st.column_config.DateColumn(THAI_COLS["End_Date"]),
+                "Employee": st.column_config.TextColumn(THAI_COLS["Employee"]),
+                "Progress": st.column_config.ProgressColumn(THAI_COLS["Progress"], format="%d%%"),
+                "Status": st.column_config.TextColumn(THAI_COLS["Status"])
             }
         )
         if event.selection.rows:
             idx = event.selection.rows[0]
-            if st.button(f"✏️ แก้ไข / ลบ: {df.iloc[idx]['Sub_Task']}", type="primary"):
-                update_task_dialog(idx, df.iloc[idx])
-    else:
-        st.info("ยังไม่มีข้อมูลงานในระบบ")
+            update_task_dialog(idx, df.iloc[idx])
+    else: st.info("ไม่มีงาน")
 
-elif menu == "🏆 ประเมินผลงาน":
+with tab4:
     df = calculate_status_and_score(st.session_state['data'].copy())
     if not df.empty:
         df['Year'] = pd.to_datetime(df['End_Date'], errors='coerce').dt.year
         yrs = df['Year'].dropna().unique().tolist()
         if yrs:
-            sy = st.selectbox("เลือกปีงบประมาณ:", sorted(yrs, reverse=True))
+            sy = st.selectbox("ปีงบประมาณ", sorted(yrs, reverse=True))
             dfy = df[df['Year'] == sy]
             if not dfy.empty:
-                sum_df = dfy.groupby('Employee').agg(Total=('Sub_Task','count'), Avg=('Score','mean'), Late=('Status', lambda x: x.str.contains('ล่าช้า').sum())).reset_index()
+                sum_df = dfy.groupby('Employee').agg(
+                    Total=('Sub_Task','count'), 
+                    Avg=('Score','mean'), 
+                    Late=('Status', lambda x: x.str.contains('ล่าช้า').sum())
+                ).reset_index()
+                
                 sum_df['Avg'] = sum_df['Avg'].fillna(0)
                 sum_df['OnTime%'] = ((sum_df['Total'] - sum_df['Late']) / sum_df['Total']) * 100
-                sum_df['Grade'] = sum_df['Avg'].apply(lambda x: "A" if x>=90 else "B" if x>=80 else "C" if x>=70 else "D")
                 
-                # Winner
                 if not sum_df.empty:
                     best = sum_df.sort_values(by='Avg', ascending=False).iloc[0]
-                    st.success(f"🥇 **สุดยอดพนักงานปี {sy}: {best['Employee']}** (คะแนน: {best['Avg']:.1f})")
+                    st.success(f"🥇 **{best['Employee']}** ({best['Avg']:.1f})")
+                
+                for _, row in sum_df.iterrows():
+                    with st.container(border=True):
+                        c1, c2, c3 = st.columns(3)
+                        c1.metric(row['Employee'], f"{row['Avg']:.1f}")
+                        c2.metric("งาน", row['Total'])
+                        c3.metric("ตรงเวลา", f"{row['OnTime%']:.0f}%")
 
-                c1, c2 = st.columns([2, 1])
-                with c1:
-                    fig = px.bar(sum_df, x='Employee', y='Avg', color='Avg', color_continuous_scale='RdYlGn', text_auto='.1f')
-                    fig.update_layout(yaxis_title="คะแนนเฉลี่ย")
-                    st.plotly_chart(fig, use_container_width=True)
-                with c2:
-                    st.dataframe(
-                        sum_df, 
-                        use_container_width=True, hide_index=True,
-                        column_config={
-                            "Employee": st.column_config.TextColumn(THAI_COLS["Employee"]),
-                            "Total": st.column_config.NumberColumn(THAI_COLS["Total"]),
-                            "Avg": st.column_config.NumberColumn(THAI_COLS["Avg"], format="%.1f"),
-                            "Late": st.column_config.NumberColumn(THAI_COLS["Late"]),
-                            "OnTime%": st.column_config.ProgressColumn(THAI_COLS["OnTime%"], format="%d%%", min_value=0, max_value=100),
-                            "Grade": st.column_config.TextColumn(THAI_COLS["Grade"]),
-                        }
-                    )
-            else: st.info("ไม่มีข้อมูลสำหรับปีนี้")
-        else: st.info("ไม่พบปีที่มีข้อมูล (กรุณาตรวจสอบวันที่สิ้นสุดของงาน)")
-    else: st.info("ยังไม่มีข้อมูล")
+            else: st.info("ไม่มีงานปีนี้")
+        else: st.info("ไม่มีข้อมูลปี")
+    else: st.info("ไม่มีข้อมูล")
