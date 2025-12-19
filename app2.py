@@ -5,25 +5,14 @@ from datetime import datetime, date, timedelta
 import gspread
 
 # ---------------------------------------------------------
-# 1. การตั้งค่า (CONFIGURATION) - แบบ Hybrid (Auto Sidebar)
+# 1. การตั้งค่า (CONFIGURATION)
 # ---------------------------------------------------------
-# [แก้] เปลี่ยน initial_sidebar_state เป็น "auto" เพื่อให้คอมกางออก แต่มือถือหุบเอง
 st.set_page_config(page_title="ระบบติดตามงาน AII", layout="wide", initial_sidebar_state="auto")
 
-# CSS ปรับแต่งให้ดูดีทั้ง Mobile และ Desktop
 st.markdown("""
     <style>
-        /* ลดพื้นที่ว่างด้านบน */
-        .block-container {
-            padding-top: 1.5rem;
-            padding-bottom: 3rem;
-        }
-        /* ปรับ Tab ให้สวยงาม */
-        button[data-baseweb="tab"] {
-            border-radius: 5px;
-            margin: 0 2px;
-        }
-        /* ซ่อน Footer และ Hamburger Menu */
+        .block-container { padding-top: 1.5rem; padding-bottom: 3rem; }
+        button[data-baseweb="tab"] { border-radius: 5px; margin: 0 2px; }
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
     </style>
@@ -238,7 +227,7 @@ def update_task_dialog(index, row_data):
         st.rerun()
 
 # ==========================================
-# 7. MAIN UI (HYBRID)
+# 7. MAIN UI
 # ==========================================
 def auto_update_date():
     p, d = st.session_state.get('k_proj_sel'), st.session_state.get('k_dep_sel')
@@ -274,7 +263,7 @@ def submit_work():
         st.toast(f"✅ เพิ่มงานเรียบร้อย ({len(emps)} คน)", icon="💾")
     else: st.toast("❌ ข้อมูลไม่ครบ", icon="⚠️")
 
-# --- SIDEBAR (Auto Collapse on Mobile) ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.header("⚙️ ตั้งค่า")
     if st.button("🔄 รีเฟรชข้อมูล", use_container_width=True):
@@ -367,7 +356,8 @@ with tab2:
     else: st.info("ไม่มีข้อมูล")
 
 with tab3:
-    st.info("👆 แตะที่งานเพื่อแก้ไข")
+    # [จุดที่แก้] เปลี่ยนจาก "เลือกปุ๊บเด้งปั๊บ" เป็น "กดปุ่มเพื่อแก้ไข"
+    st.info("👆 คลิกเลือกงานในตาราง -> จะมีปุ่ม 'แก้ไข' โผล่มาด้านล่าง")
     df = calculate_status_and_score(st.session_state['data'])
     if not df.empty:
         event = st.dataframe(
@@ -380,9 +370,13 @@ with tab3:
                 "Status": st.column_config.TextColumn(THAI_COLS["Status"])
             }
         )
+        # ตรวจสอบว่ามีการเลือก และต้องกดปุ่มถึงจะเปิด Dialog
         if event.selection.rows:
             idx = event.selection.rows[0]
-            update_task_dialog(idx, df.iloc[idx])
+            selected_task_name = df.iloc[idx]['Sub_Task']
+            # เพิ่มปุ่มกด เพื่อป้องกันการเด้งเองตอนหน้าจอ Refresh
+            if st.button(f"✏️ แก้ไขงาน: {selected_task_name}", type="primary", use_container_width=True):
+                update_task_dialog(idx, df.iloc[idx])
     else: st.info("ไม่มีงาน")
 
 with tab4:
