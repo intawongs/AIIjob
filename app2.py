@@ -18,7 +18,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🌌 AII Project Tracker")
+st.title("🌌 Project Tracker")
 
 # ==========================================
 # 2. เชื่อมต่อ GOOGLE SHEETS
