@@ -4,12 +4,14 @@ import plotly.express as px
 from datetime import datetime, date, timedelta
 import gspread
 
-# ตั้งค่าหน้าเว็บ
-st.set_page_config(page_title="Chronos: Project AI", layout="wide")
-st.title("🌌 Chronos Project Tracker (Online)")
+# ---------------------------------------------------------
+# 1. CONFIGURATION
+# ---------------------------------------------------------
+st.set_page_config(page_title="AII Project Tracker", layout="wide")
+st.title("🌌 AII Project Tracker (Online)")
 
 # ==========================================
-# 1. GOOGLE SHEETS CONNECTION
+# 2. GOOGLE SHEETS CONNECTION
 # ==========================================
 def connect_gsheet():
     """เชื่อมต่อ Google Sheets แบบ Native GSpread Auth"""
@@ -18,7 +20,7 @@ def connect_gsheet():
         if "gcp_service_account" in st.secrets:
             creds_dict = dict(st.secrets["gcp_service_account"])
             
-            # แก้บั๊ก Private Key (\n)
+            # แก้บั๊ก Private Key (\n) ที่บางที Streamlit อ่านผิด
             if "\\n" in creds_dict["private_key"]:
                 creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
             
@@ -39,7 +41,7 @@ def connect_gsheet():
         return None
 
 # ==========================================
-# 2. DATABASE & LOGIC (Robust Load/Save)
+# 3. DATABASE LOGIC (LOAD & SAVE)
 # ==========================================
 def load_data():
     sh = connect_gsheet()
@@ -101,14 +103,21 @@ def load_data():
     return pd.DataFrame(), [], []
 
 def save_data():
-    """ฟังก์ชันบันทึกข้อมูลแบบแยกส่วน (Isolation Save) ป้องกันการพังต่อเนื่อง"""
+    """ฟังก์ชันบันทึกข้อมูลแบบ Atomic Write (เขียนทับรวดเดียว เพื่อแก้ปัญหาลบไม่หาย)"""
     sh = connect_gsheet()
     if sh:
-        # ---------------------------------------------------
-        # PART 1: LOGS (งาน)
-        # ---------------------------------------------------
+        # --- PART 1: LOGS (งาน) ---
         try:
             ws_logs = sh.worksheet('Logs')
+            
+            # เตรียมข้อมูล DataFrame
+            save_df = st.session_state['data'].copy()
+            
+            # จัดการวันที่ให้เป็น String เพื่อส่งไป GSheet
+            save_df['Start_Date'] = save_df['Start_Date'].apply(lambda x: x.strftime('%Y-%m-%d') if isinstance(x, (date, datetime)) else "")
+            save_df['End_Date'] = save_df['End_Date'].apply(lambda x: x.strftime('%Y-%m-%d') if isinstance(x, (date, datetime)) else "")
+            
+            # เตรียม Header
             cols_to_save = [
                 'Employee', 'Main_Task', 'Sub_Task', 
                 'Start_Date', 'End_Date', 
@@ -116,51 +125,52 @@ def save_data():
                 'Score', 'Status'
             ]
             
-            save_df = st.session_state['data'].copy()
-            
-            # Ensure Columns Exist
+            # เช็คคอลัมน์ให้ครบ
             for c in cols_to_save:
                 if c not in save_df.columns: save_df[c] = ""
             
-            # Safe Date Conversion
-            save_df['Start_Date'] = save_df['Start_Date'].apply(lambda x: x.strftime('%Y-%m-%d') if isinstance(x, (date, datetime)) else "")
-            save_df['End_Date'] = save_df['End_Date'].apply(lambda x: x.strftime('%Y-%m-%d') if isinstance(x, (date, datetime)) else "")
-            
-            # Clear & Write
-            ws_logs.clear() # ล้างของเก่าทิ้ง
-            ws_logs.append_row(cols_to_save) # ใส่หัวตาราง
-            
+            # รวม Header + Data เป็นก้อนเดียว (List of Lists)
+            all_values = [cols_to_save] # ใส่ Header เป็นแถวแรก
             if not save_df.empty:
-                rows_to_write = save_df[cols_to_save].values.tolist()
-                ws_logs.update(range_name="A2", values=rows_to_write)
+                # เพิ่มข้อมูลต่อท้าย
+                all_values.extend(save_df[cols_to_save].values.tolist())
+            
+            # สั่ง Clear และ Update ในคำสั่งเดียว
+            ws_logs.clear()
+            ws_logs.update(range_name="A1", values=all_values)
+                
         except Exception as e:
-            print(f"Error saving LOGS: {e}") # บันทึก Log เงียบๆ ไม่ให้ User ตกใจ
+            print(f"Error saving LOGS: {e}")
 
-        # ---------------------------------------------------
-        # PART 2: EMPLOYEES (พนักงาน) - สำคัญสำหรับการลบ
-        # ---------------------------------------------------
+        # --- PART 2: EMPLOYEES (พนักงาน) ---
         try:
             ws_emps = sh.worksheet('Employees')
-            ws_emps.clear() # ล้างของเก่าทิ้งให้หมดก่อน
-            ws_emps.append_row(['Name'])
             
-            emp_data = [[x] for x in st.session_state['employees']]
-            if emp_data: 
-                ws_emps.update(range_name="A2", values=emp_data)
+            # เตรียมข้อมูล [Header] + [Data]
+            emp_final_data = [['Name']] # แถวแรกคือหัวตาราง
+            for name in st.session_state['employees']:
+                emp_final_data.append([name])
+            
+            # เขียนทับเลย
+            ws_emps.clear()
+            ws_emps.update(range_name="A1", values=emp_final_data)
+            
         except Exception as e:
             st.error(f"❌ Error saving Employees: {e}")
 
-        # ---------------------------------------------------
-        # PART 3: PROJECTS (โปรเจกต์)
-        # ---------------------------------------------------
+        # --- PART 3: PROJECTS (โปรเจกต์) ---
         try:
             ws_projs = sh.worksheet('Projects')
-            ws_projs.clear() # ล้างของเก่าทิ้งให้หมดก่อน
-            ws_projs.append_row(['Project'])
             
-            proj_data = [[x] for x in st.session_state['projects']]
-            if proj_data: 
-                ws_projs.update(range_name="A2", values=proj_data)
+            # เตรียมข้อมูล [Header] + [Data]
+            proj_final_data = [['Project']] # แถวแรกคือหัวตาราง
+            for proj in st.session_state['projects']:
+                proj_final_data.append([proj])
+                
+            # เขียนทับเลย
+            ws_projs.clear()
+            ws_projs.update(range_name="A1", values=proj_final_data)
+            
         except Exception as e:
             st.error(f"❌ Error saving Projects: {e}")
 
@@ -173,8 +183,11 @@ def update_db(key, list_name):
 def delete_db(key, list_name):
     val = st.session_state.get(key)
     if val and val in st.session_state[list_name]:
+        
+        # 1. ลบจากหน่วยความจำ
         st.session_state[list_name].remove(val)
-        # Cascading Delete
+        
+        # 2. ลบงานที่เกี่ยวข้อง (Cascading Delete)
         if list_name == 'projects':
             df = st.session_state['data']
             st.session_state['data'] = df[df['Main_Task'] != val].reset_index(drop=True)
@@ -184,11 +197,14 @@ def delete_db(key, list_name):
              st.session_state['data'] = df[df['Employee'] != val].reset_index(drop=True)
              st.toast(f"👤 ลบพนักงาน '{val}' และงานของเขาแล้ว", icon="🗑️")
         
+        # 3. บันทึกลง GSheet ทันที (เขียนทับใหม่หมด)
         save_data()
-        st.cache_data.clear() # เคลียร์แคชกันเหนียว
+        
+        # 4. เคลียร์ Cache เพื่อให้โหลดใหม่ถูกต้อง
+        st.cache_data.clear()
 
 # ==========================================
-# 3. INITIALIZE STATE
+# 4. INITIALIZE STATE
 # ==========================================
 if 'data' not in st.session_state:
     logs, emps, projs = load_data()
@@ -214,7 +230,7 @@ for k, v in zip(keys, defaults):
     if k not in st.session_state: st.session_state[k] = v
 
 # ==========================================
-# 4. HELPER: SCORE & STATUS
+# 5. HELPER: SCORE & STATUS
 # ==========================================
 def calculate_status_and_score(df):
     if df.empty: return df
@@ -229,6 +245,7 @@ def calculate_status_and_score(df):
             if isinstance(s_date, str) and s_date: s_date = datetime.strptime(s_date, '%Y-%m-%d').date()
             if isinstance(e_date, str) and e_date: e_date = datetime.strptime(e_date, '%Y-%m-%d').date()
             
+            # Check Valid Date
             if not isinstance(s_date, date) or not isinstance(e_date, date):
                 return "❓ วันที่ระบุไม่ครบ", 0
 
@@ -253,7 +270,7 @@ def calculate_status_and_score(df):
 st.session_state['data'] = calculate_status_and_score(st.session_state['data'])
 
 # ==========================================
-# 5. DIALOG FUNCTION (POP-UP)
+# 6. DIALOG FUNCTION (POP-UP)
 # ==========================================
 @st.dialog("📝 อัพเดตงาน / บันทึกปัญหา")
 def update_task_dialog(index, row_data):
@@ -301,7 +318,7 @@ def update_task_dialog(index, row_data):
         st.rerun()
 
 # ==========================================
-# 6. CALLBACKS
+# 7. CALLBACKS
 # ==========================================
 def auto_update_date():
     proj = st.session_state.get('k_proj_sel')
