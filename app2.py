@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 from datetime import datetime, date, timedelta
 import gspread
+import time
 
 # ---------------------------------------------------------
 # 1. CONFIGURATION
@@ -97,27 +98,23 @@ def load_data():
 
         except Exception as e:
             st.error(f"Error reading data: {e}")
-            # คืนค่าตารางเปล่าเพื่อกันแอปพัง
             return pd.DataFrame(columns=['Employee', 'Main_Task', 'Sub_Task', 'Start_Date', 'End_Date', 'Output', 'Issue', 'Dependency', 'Progress', 'Score', 'Status']), [], []
             
     return pd.DataFrame(), [], []
 
 def save_data():
-    """ฟังก์ชันบันทึกข้อมูลแบบ Atomic Write (เขียนทับรวดเดียว เพื่อแก้ปัญหาลบไม่หาย)"""
+    """ฟังก์ชันบันทึกข้อมูลแบบ Atomic Write (เขียนทับรวดเดียว)"""
     sh = connect_gsheet()
     if sh:
         # --- PART 1: LOGS (งาน) ---
         try:
             ws_logs = sh.worksheet('Logs')
-            
-            # เตรียมข้อมูล DataFrame
             save_df = st.session_state['data'].copy()
             
-            # จัดการวันที่ให้เป็น String เพื่อส่งไป GSheet
+            # จัดการวันที่ให้เป็น String
             save_df['Start_Date'] = save_df['Start_Date'].apply(lambda x: x.strftime('%Y-%m-%d') if isinstance(x, (date, datetime)) else "")
             save_df['End_Date'] = save_df['End_Date'].apply(lambda x: x.strftime('%Y-%m-%d') if isinstance(x, (date, datetime)) else "")
             
-            # เตรียม Header
             cols_to_save = [
                 'Employee', 'Main_Task', 'Sub_Task', 
                 'Start_Date', 'End_Date', 
@@ -125,69 +122,58 @@ def save_data():
                 'Score', 'Status'
             ]
             
-            # เช็คคอลัมน์ให้ครบ
             for c in cols_to_save:
                 if c not in save_df.columns: save_df[c] = ""
             
-            # รวม Header + Data เป็นก้อนเดียว (List of Lists)
-            all_values = [cols_to_save] # ใส่ Header เป็นแถวแรก
+            all_values = [cols_to_save] 
             if not save_df.empty:
-                # เพิ่มข้อมูลต่อท้าย
                 all_values.extend(save_df[cols_to_save].values.tolist())
             
-            # สั่ง Clear และ Update ในคำสั่งเดียว
             ws_logs.clear()
             ws_logs.update(range_name="A1", values=all_values)
-                
         except Exception as e:
             print(f"Error saving LOGS: {e}")
 
         # --- PART 2: EMPLOYEES (พนักงาน) ---
         try:
             ws_emps = sh.worksheet('Employees')
-            
-            # เตรียมข้อมูล [Header] + [Data]
-            emp_final_data = [['Name']] # แถวแรกคือหัวตาราง
+            emp_final_data = [['Name']]
             for name in st.session_state['employees']:
                 emp_final_data.append([name])
             
-            # เขียนทับเลย
             ws_emps.clear()
             ws_emps.update(range_name="A1", values=emp_final_data)
-            
         except Exception as e:
             st.error(f"❌ Error saving Employees: {e}")
 
         # --- PART 3: PROJECTS (โปรเจกต์) ---
         try:
             ws_projs = sh.worksheet('Projects')
-            
-            # เตรียมข้อมูล [Header] + [Data]
-            proj_final_data = [['Project']] # แถวแรกคือหัวตาราง
+            proj_final_data = [['Project']]
             for proj in st.session_state['projects']:
                 proj_final_data.append([proj])
                 
-            # เขียนทับเลย
             ws_projs.clear()
             ws_projs.update(range_name="A1", values=proj_final_data)
-            
         except Exception as e:
             st.error(f"❌ Error saving Projects: {e}")
 
+# [แก้ใหม่] ฟังก์ชันเพิ่มข้อมูล แล้วเคลียร์ช่อง Input
 def update_db(key, list_name):
     val = st.session_state.get(key)
     if val and val not in st.session_state[list_name]:
         st.session_state[list_name].append(val)
         save_data()
+        
+        # [NEW] สั่งเคลียร์ช่อง Input ให้ว่างเปล่าทันที
+        st.session_state[key] = ""
+        st.toast(f"✅ เพิ่ม '{val}' เรียบร้อย", icon="💾")
 
 def delete_db(key, list_name):
     val = st.session_state.get(key)
     if val and val in st.session_state[list_name]:
-        
-        # 1. ลบจากหน่วยความจำ
         st.session_state[list_name].remove(val)
         
-        # 2. ลบงานที่เกี่ยวข้อง (Cascading Delete)
         if list_name == 'projects':
             df = st.session_state['data']
             st.session_state['data'] = df[df['Main_Task'] != val].reset_index(drop=True)
@@ -197,10 +183,7 @@ def delete_db(key, list_name):
              st.session_state['data'] = df[df['Employee'] != val].reset_index(drop=True)
              st.toast(f"👤 ลบพนักงาน '{val}' และงานของเขาแล้ว", icon="🗑️")
         
-        # 3. บันทึกลง GSheet ทันที (เขียนทับใหม่หมด)
         save_data()
-        
-        # 4. เคลียร์ Cache เพื่อให้โหลดใหม่ถูกต้อง
         st.cache_data.clear()
 
 # ==========================================
@@ -223,7 +206,6 @@ if 'data' not in st.session_state:
             'Score', 'Status'
         ])
 
-# Init Helper Variables
 keys = ['k_d_start', 'k_d_end', 'k_prog', 'k_sub', 'k_out', 'k_issue', 'k_emps_multi']
 defaults = [datetime.now(), datetime.now(), 0, "", "", "", []]
 for k, v in zip(keys, defaults):
@@ -241,11 +223,9 @@ def calculate_status_and_score(df):
             s_date = row['Start_Date']
             e_date = row['End_Date']
             
-            # Ensure date objects
             if isinstance(s_date, str) and s_date: s_date = datetime.strptime(s_date, '%Y-%m-%d').date()
             if isinstance(e_date, str) and e_date: e_date = datetime.strptime(e_date, '%Y-%m-%d').date()
             
-            # Check Valid Date
             if not isinstance(s_date, date) or not isinstance(e_date, date):
                 return "❓ วันที่ระบุไม่ครบ", 0
 
@@ -378,7 +358,6 @@ def submit_work_log():
 with st.sidebar:
     st.title("⚙️ ตั้งค่า")
     
-    # ปุ่มรีเฟรชข้อมูล
     if st.button("🔄 รีเฟรชข้อมูลล่าสุด", use_container_width=True):
         st.cache_data.clear()
         logs, emps, projs = load_data()
@@ -389,7 +368,6 @@ with st.sidebar:
             st.toast("อัพเดตข้อมูลล่าสุดแล้ว!", icon="✅")
             st.rerun()
 
-    # Alert System
     df_alert = st.session_state['data']
     if not df_alert.empty and 'Status' in df_alert.columns:
         late_tasks = df_alert[df_alert['Status'].str.contains("ล่าช้า", na=False)]
@@ -405,12 +383,14 @@ with st.sidebar:
     st.markdown("---")
 
     with st.expander("👤 จัดการรายชื่อพนักงาน", expanded=False):
+        # [จุดที่แก้] key='new_emp' ถูกใช้ใน on_change และจะถูกเคลียร์ใน update_db
         st.text_input("เพิ่มชื่อ", key='new_emp', on_change=update_db, args=('new_emp', 'employees'))
         if st.session_state['employees']:
             st.selectbox("ลบชื่อ", st.session_state['employees'], key='del_emp')
             st.button("ลบคน", on_click=delete_db, args=('del_emp', 'employees'))
 
     with st.expander("📂 จัดการงานหลัก (Projects)", expanded=False):
+        # [จุดที่แก้] key='new_proj' ถูกใช้ใน on_change และจะถูกเคลียร์ใน update_db
         st.text_input("เพิ่มงาน", key='new_proj', on_change=update_db, args=('new_proj', 'projects'))
         if st.session_state['projects']:
             st.selectbox("ลบงาน", st.session_state['projects'], key='del_proj')
@@ -454,7 +434,6 @@ elif menu == "📊 Gantt Chart (ติดตามงาน)":
     
     if not df.empty:
         try:
-            # Prepare Data for Chart
             df['Start'] = pd.to_datetime(df['Start_Date'], errors='coerce')
             df['End'] = pd.to_datetime(df['End_Date'], errors='coerce')
             df = df.dropna(subset=['Start', 'End'])
@@ -471,14 +450,12 @@ elif menu == "📊 Gantt Chart (ติดตามงาน)":
             
             view_mode = st.radio("รูปแบบ:", ["👤 รวมตามพนักงาน", "📝 แยกตามชื่องาน"], horizontal=True)
             
-            # Zoom Logic
             if not df['Start'].isnull().all() and not df['End'].isnull().all():
                 start_view = df['Start'].min() - timedelta(days=5)
                 end_view = df['End'].max() + timedelta(days=5)
             else:
                 start_view, end_view = datetime.now() - timedelta(days=7), datetime.now() + timedelta(days=14)
             
-            # Plot
             df_chart = df.copy()
             if not df_chart.empty:
                 df_chart['Dependency'] = df_chart['Dependency'].fillna("-")
@@ -504,7 +481,6 @@ elif menu == "📊 Gantt Chart (ติดตามงาน)":
                 
                 st.plotly_chart(fig, use_container_width=True)
                 
-                # Detail Table
                 def highlight_late(row): return ['background-color: #ffcccc'] * len(row) if "ล่าช้า" in str(row['Status']) else [''] * len(row)
                 st.write("### 📋 รายละเอียด")
                 st.dataframe(
