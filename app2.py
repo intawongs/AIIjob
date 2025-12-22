@@ -413,6 +413,7 @@ with tab4:
             sy = st.selectbox("ปีงบประมาณ", sorted(yrs, reverse=True))
             dfy = df[df['Year'] == sy]
             if not dfy.empty:
+                # 1. คำนวณสรุปข้อมูล
                 sum_df = dfy.groupby('Employee').agg(
                     Total=('Sub_Task','count'), 
                     Avg=('Score','mean'), 
@@ -422,16 +423,35 @@ with tab4:
                 sum_df['Avg'] = sum_df['Avg'].fillna(0)
                 sum_df['OnTime%'] = ((sum_df['Total'] - sum_df['Late']) / sum_df['Total']) * 100
                 
-                if not sum_df.empty:
-                    best = sum_df.sort_values(by='Avg', ascending=False).iloc[0]
-                    st.success(f"🥇 **{best['Employee']}** ({best['Avg']:.1f})")
-                
-                for _, row in sum_df.iterrows():
+                # 2. เรียงลำดับจากคะแนนมากสุดไปน้อยสุด
+                sum_df = sum_df.sort_values(by=['Avg', 'OnTime%'], ascending=[False, False]).reset_index(drop=True)
+
+                # 3. วนลูปแสดงผลทีละคน
+                for i, row in sum_df.iterrows():
+                    # กำหนดเหรียญรางวัล
+                    rank = i + 1
+                    if rank == 1: medal = "🥇"
+                    elif rank == 2: medal = "🥈"
+                    elif rank == 3: medal = "🥉"
+                    else: medal = f"#{rank}" # อันดับ 4 ลงไปแสดงเป็นตัวเลข
+
                     with st.container(border=True):
-                        c1, c2, c3 = st.columns(3)
-                        c1.metric(row['Employee'], f"{row['Avg']:.1f}")
-                        c2.metric("งาน", row['Total'])
-                        c3.metric("ตรงเวลา", f"{row['OnTime%']:.0f}%")
+                        # 4. แบ่งคอลัมน์ใหม่เป็น 4 ช่อง
+                        # [เหรียญ] [ชื่อ + คะแนน] [จำนวนงาน] [ความตรงเวลา]
+                        c_medal, c_info, c_total, c_ontime = st.columns([1, 3, 2, 2])
+                        
+                        with c_medal:
+                            # แสดงเหรียญตัวใหญ่ๆ ตรงกลาง
+                            st.markdown(f"<h1 style='text-align: center; margin: 0;'>{medal}</h1>", unsafe_allow_html=True)
+                        
+                        # ชื่อพนักงาน และ คะแนนเฉลี่ย
+                        c_info.metric(f"{row['Employee']}", f"{row['Avg']:.1f} คะแนน")
+                        
+                        # งานทั้งหมด
+                        c_total.metric("งานทั้งหมด", f"{row['Total']} งาน")
+                        
+                        # ส่งตรงเวลา
+                        c_ontime.metric("ตรงเวลา", f"{row['OnTime%']:.0f}%")
 
             else: st.info("ไม่มีงานปีนี้")
         else: st.info("ไม่มีข้อมูลปี")
