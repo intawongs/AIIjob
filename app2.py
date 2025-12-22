@@ -345,9 +345,23 @@ with tab2:
         
         chart_height = 300 + (len(df) * 30)
         
-        fig = px.timeline(df, x_start="Start", x_end="Visual_End", y="Sub_Task", color="Employee", text="Label", height=chart_height)
+        # -----------------------------------------------
+        # [แก้ไข] เพิ่มการแยกกลุ่มและสีที่ชัดเจน
+        # -----------------------------------------------
+        fig = px.timeline(
+            df, 
+            x_start="Start", 
+            x_end="Visual_End", 
+            y="Sub_Task", 
+            color="Employee", 
+            text="Label", 
+            height=chart_height,
+            color_discrete_sequence=px.colors.qualitative.Bold, # เปลี่ยนชุดสีให้ชัด
+            opacity=0.9
+        )
         fig.update_yaxes(autorange="reversed", title="")
         fig.update_layout(
+            barmode='group', # สำคัญมาก! ทำให้แท่งกราฟไม่ทับกัน
             margin=dict(l=10, r=10, t=10, b=10),
             legend=dict(orientation="h", y=-0.2)
         )
@@ -373,13 +387,11 @@ with tab3:
     df = calculate_status_and_score(st.session_state['data'])
     if not df.empty:
         event = st.dataframe(
-            # [FIXED] เพิ่มคอลัมน์ Issue กลับเข้ามาตรงนี้
             df[['Sub_Task', 'Employee', 'Issue', 'Progress', 'Status']], 
             use_container_width=True, on_select="rerun", selection_mode="single-row", hide_index=True,
             column_config={
                 "Sub_Task": st.column_config.TextColumn(THAI_COLS["Sub_Task"]),
                 "Employee": st.column_config.TextColumn(THAI_COLS["Employee"]),
-                # [FIXED] ตั้งค่าหัวตารางสำหรับ Issue
                 "Issue": st.column_config.TextColumn(THAI_COLS["Issue"], width="medium"),
                 "Progress": st.column_config.ProgressColumn(THAI_COLS["Progress"], format="%d%%"),
                 "Status": st.column_config.TextColumn(THAI_COLS["Status"])
