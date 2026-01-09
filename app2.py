@@ -1411,7 +1411,10 @@ with tab2: # แผนผัง (Timeline)
         df['End'] = pd.to_datetime(df['End_Date'], errors='coerce')
         df = df.dropna(subset=['Start', 'End'])
         
-        # เรียงตาม โปรเจกต์ -> วันที่เริ่ม
+        # -----------------------------------------------------------
+        # 🔥 จุดสำคัญ 1: จัดเรียงข้อมูล (Sorting)
+        # เรียงตาม "ชื่อโปรเจกต์" ก่อน (ก-ฮ) -> แล้วค่อยตามด้วย "วันที่เริ่ม"
+        # -----------------------------------------------------------
         df = df.sort_values(by=['Main_Task', 'Start'], ascending=[True, True])
         
         # สร้างชื่อแกน Y
@@ -1442,23 +1445,30 @@ with tab2: # แผนผัง (Timeline)
             }
         )
         
-        fig.update_yaxes(autorange="reversed", title="", type='category')
-        
-        # --- จุดที่แก้ไข: ปรับแกน X เป็นรายสัปดาห์ ---
-        fig.update_xaxes(
-            title="",
-            tickformat="%d %b",   # รูปแบบวันที่ (เช่น 01 Jan)
-            dtick=604800000,      # 604,800,000 ms = 7 วัน (ขีดเส้นแบ่งทุกสัปดาห์)
-            ticklabelmode="period", # จัด label ให้อยู่กึ่งกลางช่วง (ถ้า version รองรับ) หรือลบทิ้งได้ถ้า error
-            gridcolor='#eee'      # เส้นตารางสีจางๆ
+        # -----------------------------------------------------------
+        # 🔥 จุดสำคัญ 2: บังคับลำดับแกน Y (Force Order)
+        # สั่งให้เรียงตามลิสต์ใน DataFrame ที่เรา sort ไว้แล้วเท่านั้น (ป้องกันกราฟเรียงมั่ว)
+        # -----------------------------------------------------------
+        fig.update_yaxes(
+            autorange="reversed",     # ให้ตัวแรกอยู่บรรทัดบนสุด
+            title="", 
+            type='category',
+            categoryorder='array',    # เปิดโหมดบังคับเรียง
+            categoryarray=df['Task_Display'] # ยัดไส้ลำดับที่ถูกต้องเข้าไป
         )
         
-        # ย้าย Legend ไปข้างบน
+        # ตั้งค่าแกน X เป็นรายสัปดาห์
+        fig.update_xaxes(
+            title="",
+            tickformat="%d %b",   
+            dtick=604800000,      # 7 วัน
+            gridcolor='#eee'
+        )
+        
         fig.update_layout(
             barmode='group', 
             margin=dict(l=10, r=10, t=10, b=10), 
             legend=dict(orientation="h", y=1.02, x=0),
-            xaxis=dict(side="top") # (Optional) เอาวันที่ไว้ด้านบนกราฟด้วยก็ได้ ถ้าชอบ
         )
         
         fig.add_vline(x=datetime.now().timestamp()*1000, line_dash="dot", line_color="red", annotation_text="Today")
