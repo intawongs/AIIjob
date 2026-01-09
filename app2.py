@@ -1404,74 +1404,69 @@ with tab2: # แผนผัง (Timeline)
     # 1. ดึงและเตรียมข้อมูล
     df = calculate_status_and_score(st.session_state['data'].copy())
     
-    # กรองตามคนที่เลือก
     if not df.empty: df = df[df['Employee'].isin(sel_emps)]
     
     if not df.empty:
-        # แปลงวันที่ให้เป็น format datetime เพื่อใช้คำนวณและเรียงลำดับ
         df['Start'] = pd.to_datetime(df['Start_Date'], errors='coerce')
         df['End'] = pd.to_datetime(df['End_Date'], errors='coerce')
         df = df.dropna(subset=['Start', 'End'])
         
-        # --- จุดสำคัญ: จัดเรียงข้อมูล (Sorting) ---
-        # เรียงตาม Main_Task (ก-ฮ) -> แล้วค่อยเรียงตาม Start (วันที่เริ่มก่อน-หลัง)
+        # เรียงตาม โปรเจกต์ -> วันที่เริ่ม
         df = df.sort_values(by=['Main_Task', 'Start'], ascending=[True, True])
         
-        # สร้างชื่อที่จะโชว์ในแกน Y (โปรเจกต์ : ชื่องาน)
-        # การทำแบบนี้ทำให้งานชื่อซ้ำกัน (เช่น "Design") ไม่ถูกรวบเป็นบรรทัดเดียว
+        # สร้างชื่อแกน Y
         df['Task_Display'] = "📂 " + df['Main_Task'] + " | " + df['Sub_Task']
         
-        # คำนวณวันจบสำหรับกราฟ (บวก 1 วันเพื่อให้แถบเต็มวัน)
         df['Visual_End'] = df['End'] + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
         df['Label'] = df['Progress'].astype(str) + "%"
         
-        # คำนวณความสูงของกราฟตามจำนวนงาน
-        chart_height = 400 + (len(df) * 35) # เพิ่มความสูงต่อบรรทัดนิดหน่อยให้อ่านง่าย
+        chart_height = 400 + (len(df) * 35)
         
         # --- สร้างกราฟ ---
         fig = px.timeline(
             df, 
             x_start="Start", 
             x_end="Visual_End", 
-            y="Task_Display",     # ใช้ชื่อที่รวมโปรเจกต์แล้ว
-            color="Employee",     # ยังคงแยกสีตามคน (หรือเปลี่ยนเป็น color="Main_Task" ถ้าอยากแยกสีตามโปรเจกต์)
+            y="Task_Display", 
+            color="Employee", 
             text="Label", 
             height=chart_height, 
-            color_discrete_sequence=px.colors.qualitative.Pastel, # สีพาสเทลดูสบายตา
+            color_discrete_sequence=px.colors.qualitative.Pastel,
             opacity=0.9,
-            # ปรับแต่ง Tooltip เวลาเอาเมาส์ชี้
             hover_data={
                 "Main_Task": True, 
                 "Sub_Task": True, 
                 "Task_Display": False,
-                "Start": "|%d %b %Y", # จัด format วันที่
+                "Start": "|%d %b %Y",
                 "End": "|%d %b %Y"
             }
         )
         
-        # ตั้งค่าแกน Y ให้เรียงจากบนลงล่าง (reversed) ตามที่เรา Sort ไว้ใน DataFrame
         fig.update_yaxes(autorange="reversed", title="", type='category')
         
-        # ตั้งค่าแกน X ให้แสดงวันที่ชัดเจนขึ้น
+        # --- จุดที่แก้ไข: ปรับแกน X เป็นรายสัปดาห์ ---
         fig.update_xaxes(
             title="",
-            tickformat="%d %b", # แสดงเป็น 01 Jan
-            dtick="D7" # ให้เส้นแบ่งทุกๆ 7 วัน (หรือเอาออกถ้าอยากให้ออโต้)
+            tickformat="%d %b",   # รูปแบบวันที่ (เช่น 01 Jan)
+            dtick=604800000,      # 604,800,000 ms = 7 วัน (ขีดเส้นแบ่งทุกสัปดาห์)
+            ticklabelmode="period", # จัด label ให้อยู่กึ่งกลางช่วง (ถ้า version รองรับ) หรือลบทิ้งได้ถ้า error
+            gridcolor='#eee'      # เส้นตารางสีจางๆ
         )
         
+        # ย้าย Legend ไปข้างบน
         fig.update_layout(
             barmode='group', 
             margin=dict(l=10, r=10, t=10, b=10), 
-            legend=dict(orientation="h", y=1.02, x=0) # ย้าย Legend ไปไว้ด้านบน
+            legend=dict(orientation="h", y=1.02, x=0),
+            xaxis=dict(side="top") # (Optional) เอาวันที่ไว้ด้านบนกราฟด้วยก็ได้ ถ้าชอบ
         )
         
-        # เส้นประบอกวันปัจจุบัน (Today)
-        fig.add_vline(x=datetime.now().timestamp()*1000, line_dash="dot", line_color="red")
+        fig.add_vline(x=datetime.now().timestamp()*1000, line_dash="dot", line_color="red", annotation_text="Today")
         
         st.plotly_chart(fig, use_container_width=True)
         
     else: 
-        st.info("📭 ยังไม่มีข้อมูลงาน (กรุณาเพิ่มงานในแถบ 'ลงทะเบียน')")
+        st.info("📭 ยังไม่มีข้อมูลงาน")
 
 with tab3: # อัพเดต
     st.info("👆 คลิกเลือกงานในตาราง -> จะมีปุ่ม 'แก้ไข' โผล่มาด้านล่าง")
