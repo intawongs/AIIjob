@@ -1401,27 +1401,60 @@ with tab1: # ลงทะเบียน
         st.button("บันทึกข้อมูล", on_click=submit_work, type="primary", use_container_width=True)
 
 with tab2: # แผนผัง
+    # 1. ดึงข้อมูล
     df = calculate_status_and_score(st.session_state['data'].copy())
+    
+    # 2. กรองข้อมูลตามคนที่เลือก
     if not df.empty: df = df[df['Employee'].isin(sel_emps)]
     
     if not df.empty:
+        # 3. จัดการเรื่องวันที่
         df['Start'] = pd.to_datetime(df['Start_Date'], errors='coerce')
         df['End'] = pd.to_datetime(df['End_Date'], errors='coerce')
         df = df.dropna(subset=['Start', 'End'])
+        
+        # --- จุดที่แก้ไข (START) ---
+        # 4. สร้างคอลัมน์ใหม่ที่รวม "ชื่อโปรเจกต์ + ชื่องาน" เพื่อใช้แสดงในแกน Y
+        df['Task_Display'] = df['Main_Task'] + " ➤ " + df['Sub_Task']
+        
+        # 5. เรียงลำดับข้อมูลเพื่อให้กราฟกลุ่มโปรเจกต์เดียวกันอยู่ติดกัน
+        df = df.sort_values(by=['Main_Task', 'Start'], ascending=[True, True])
+        # --- จุดที่แก้ไข (END) ---
+
         df['Visual_End'] = df['End'] + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
         df['Label'] = df['Progress'].astype(str) + "%"
         
+        # คำนวณความสูงกราฟอัตโนมัติ
         chart_height = 300 + (len(df) * 30)
         
+        # 6. สร้างกราฟ (เปลี่ยน y เป็น 'Task_Display')
         fig = px.timeline(
-            df, x_start="Start", x_end="Visual_End", y="Sub_Task", color="Employee", text="Label", 
-            height=chart_height, color_discrete_sequence=px.colors.qualitative.Bold, opacity=0.9
+            df, 
+            x_start="Start", 
+            x_end="Visual_End", 
+            y="Task_Display",  # <--- เปลี่ยนตรงนี้จาก 'Sub_Task'
+            color="Employee", 
+            text="Label", 
+            height=chart_height, 
+            color_discrete_sequence=px.colors.qualitative.Bold, 
+            opacity=0.9,
+            hover_data={"Main_Task":True, "Sub_Task":True, "Task_Display":False} # ปรับ Tooltip ให้สวยงาม
         )
-        fig.update_yaxes(autorange="reversed", title="")
-        fig.update_layout(barmode='group', margin=dict(l=10, r=10, t=10, b=10), legend=dict(orientation="h", y=-0.2))
-        fig.add_vline(x=datetime.now().timestamp()*1000, line_dash="dash", line_color="red")
+        
+        fig.update_yaxes(autorange="reversed", title="") # กลับด้านแกน Y ให้งานแรกอยู่บนสุด
+        fig.update_layout(
+            barmode='group', 
+            margin=dict(l=10, r=10, t=10, b=10), 
+            legend=dict(orientation="h", y=-0.2),
+            xaxis_title=""
+        )
+        
+        # เส้นประบอกวันปัจจุบัน
+        fig.add_vline(x=datetime.now().timestamp()*1000, line_dash="dash", line_color="red", annotation_text="Today")
+        
         st.plotly_chart(fig, use_container_width=True)
-    else: st.info("ไม่มีข้อมูล")
+    else: 
+        st.info("ไม่มีข้อมูลที่จะแสดง")
 
 with tab3: # อัพเดต
     st.info("👆 คลิกเลือกงานในตาราง -> จะมีปุ่ม 'แก้ไข' โผล่มาด้านล่าง")
