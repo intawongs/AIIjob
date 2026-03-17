@@ -1375,30 +1375,54 @@ with st.sidebar:
 # --- MAIN TABS ---
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📝 ลงทะเบียน", "📊 แผนผัง", "🛠️ อัพเดต", "🏆 ผลงาน", "📑 รายงาน", "📖 คู่มือ"])
 
+# with tab1: # ลงทะเบียน
+#     with st.container():
+#         p = st.selectbox("โปรเจกต์", st.session_state['projects'] or ["ไม่มีข้อมูล"], key="k_proj_sel")
+#         st.text_input("ชื่องาน", key="k_sub", placeholder="เช่น ออกแบบ UX/UI")
+        
+#         df = st.session_state['data']
+#         dep_opt = ["- เริ่มใหม่ -"]
+#         if not df.empty and p != "ไม่มีข้อมูล":
+#             dep_opt += df[df['Main_Task'] == p].sort_values('End_Date', ascending=False)['Sub_Task'].unique().tolist()
+#         st.selectbox("รอต่องานไหน?", dep_opt, key="k_dep_sel", on_change=auto_update_date)
+        
+#         st.multiselect("ผู้รับผิดชอบ", st.session_state['employees'], key="k_emps_multi")
+        
+#         c1, c2 = st.columns(2)
+#         with c1: st.date_input("เริ่ม", key="k_d_start")
+#         with c2: st.date_input("ถึง", key="k_d_end")
+        
+#         st.slider("ความคืบหน้า", 0, 100, key="k_prog")
+        
+#         with st.expander("เพิ่มเติม (ผลลัพธ์/Log)"):
+#             st.text_area("ผลลัพธ์", key="k_out", height=68)
+#             st.text_area("Log Book", key="k_issue", height=68)
+            
+#         st.button("บันทึกข้อมูล", on_click=submit_work, type="primary", use_container_width=True)
+
 with tab1: # ลงทะเบียน
     with st.container():
-        p = st.selectbox("โปรเจกต์", st.session_state['projects'] or ["ไม่มีข้อมูล"], key="k_proj_sel")
-        st.text_input("ชื่องาน", key="k_sub", placeholder="เช่น ออกแบบ UX/UI")
+        # --- กรองโปรเจกต์ที่เสร็จแล้วออก ---
+        all_projs = st.session_state['projects']
+        df_logs = st.session_state['data']
         
-        df = st.session_state['data']
-        dep_opt = ["- เริ่มใหม่ -"]
-        if not df.empty and p != "ไม่มีข้อมูล":
-            dep_opt += df[df['Main_Task'] == p].sort_values('End_Date', ascending=False)['Sub_Task'].unique().tolist()
-        st.selectbox("รอต่องานไหน?", dep_opt, key="k_dep_sel", on_change=auto_update_date)
-        
-        st.multiselect("ผู้รับผิดชอบ", st.session_state['employees'], key="k_emps_multi")
-        
-        c1, c2 = st.columns(2)
-        with c1: st.date_input("เริ่ม", key="k_d_start")
-        with c2: st.date_input("ถึง", key="k_d_end")
-        
-        st.slider("ความคืบหน้า", 0, 100, key="k_prog")
-        
-        with st.expander("เพิ่มเติม (ผลลัพธ์/Log)"):
-            st.text_area("ผลลัพธ์", key="k_out", height=68)
-            st.text_area("Log Book", key="k_issue", height=68)
+        if not df_logs.empty:
+            # 1. หาว่าโปรเจกต์ไหนที่มีงานที่ยังไม่ถึง 100% บ้าง
+            active_projs_from_logs = df_logs[df_logs['Progress'] < 100]['Main_Task'].unique().tolist()
             
-        st.button("บันทึกข้อมูล", on_click=submit_work, type="primary", use_container_width=True)
+            # 2. หาโปรเจกต์ที่เพิ่งสร้างใหม่ (ยังไม่มีใน Logs เลย)
+            new_projs = [p for p in all_projs if p not in df_logs['Main_Task'].unique()]
+            
+            # รวมโปรเจกต์ที่ควรแสดง
+            filtered_projs = list(set(active_projs_from_logs + new_projs))
+            filtered_projs.sort() # เรียงตัวอักษรเพื่อความสวยงาม
+        else:
+            filtered_projs = all_projs
+
+        # แสดง Selectbox เฉพาะโปรเจกต์ที่ยังไม่เสร็จ
+        p = st.selectbox("โปรเจกต์ (แสดงเฉพาะที่ยังไม่จบ)", 
+                         filtered_projs if filtered_projs else ["ไม่มีโปรเจกต์ที่กำลังดำเนินการ"], 
+                         key="k_proj_sel")
 
 with tab2: # แผนผัง (Timeline)
     # 1. ดึงและเตรียมข้อมูล
