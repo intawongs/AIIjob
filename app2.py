@@ -1401,84 +1401,157 @@ with tab1: # ลงทะเบียน
         st.button("บันทึกข้อมูล", on_click=submit_work, type="primary", use_container_width=True)
 
 
-
 with tab2: # แผนผัง (Timeline)
-    # 1. ดึงและเตรียมข้อมูล
-    df = calculate_status_and_score(st.session_state['data'].copy())
+    st.subheader("📊 ผังความคืบหน้าแยกตามโปรเจกต์")
     
-    if not df.empty: df = df[df['Employee'].isin(sel_emps)]
+    # 1. เตรียมข้อมูลพื้นฐาน
+    df_all = calculate_status_and_score(st.session_state['data'].copy())
     
-    if not df.empty:
-        df['Start'] = pd.to_datetime(df['Start_Date'], errors='coerce')
-        df['End'] = pd.to_datetime(df['End_Date'], errors='coerce')
-        df = df.dropna(subset=['Start', 'End'])
+    if not df_all.empty:
+        # --- ส่วนการกรองข้อมูล (Filter Section) ---
+        col1, col2 = st.columns([2, 1])
         
-        # -----------------------------------------------------------
-        # 🔥 จุดสำคัญ 1: จัดเรียงข้อมูล (Sorting)
-        # เรียงตาม "ชื่อโปรเจกต์" ก่อน (ก-ฮ) -> แล้วค่อยตามด้วย "วันที่เริ่ม"
-        # -----------------------------------------------------------
-        df = df.sort_values(by=['Main_Task', 'Start'], ascending=[True, True])
+        # ตัวเลือกโปรเจกต์ (เพิ่ม 'แสดงทั้งหมด' ไว้เป็นทางเลือก)
+        project_list = ["-- แสดงทั้งหมด --"] + sorted(df_all['Main_Task'].unique().tolist())
+        selected_project = col1.selectbox("📂 เลือกโปรเจกต์ที่ต้องการดู:", project_list)
         
-        # สร้างชื่อแกน Y
-        df['Task_Display'] = "📂 " + df['Main_Task'] + " | " + df['Sub_Task']
+        # กรองข้อมูลตามโปรเจกต์ที่เลือก
+        if selected_project != "-- แสดงทั้งหมด --":
+            df = df_all[df_all['Main_Task'] == selected_project]
+        else:
+            df = df_all.copy()
+            
+        # กรองตามพนักงาน (จาก Sidebar)
+        df = df[df['Employee'].isin(sel_emps)]
+
+        if not df.empty:
+            # 2. จัดการ Format วันที่
+            df['Start'] = pd.to_datetime(df['Start_Date'], errors='coerce')
+            df['End'] = pd.to_datetime(df['End_Date'], errors='coerce')
+            df = df.dropna(subset=['Start', 'End'])
+            
+            # เรียงลำดับงานตามวันที่เริ่ม
+            df = df.sort_values(by=['Main_Task', 'Start'], ascending=[True, True])
+            
+            # สร้าง Label และแกน Y
+            df['Task_Display'] = df['Sub_Task'] + " (" + df['Employee'] + ")"
+            df['Visual_End'] = df['End'] + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+            df['Label'] = df['Progress'].astype(str) + "%"
+            
+            # คำนวณความคืบหน้าเฉลี่ยของโปรเจกต์ที่เลือก
+            avg_prog = df['Progress'].mean()
+            st.write(f"📈 **ความคืบหน้าภาพรวมของกลุ่มนี้:** {avg_prog:.1f}%")
+            st.progress(avg_prog / 100)
+
+            # 3. วาดกราฟ Gantt Chart
+            chart_height = 300 + (len(df) * 35)
+            
+            fig = px.timeline(
+                df, 
+                x_start="Start", 
+                x_end="Visual_End", 
+                y="Task_Display", 
+                color="Employee", 
+                text="Label", 
+                height=chart_height,
+                color_discrete_sequence=px.colors.qualitative.Safe,
+                hover_data=["Main_Task", "Status", "End_Date"]
+            )
+            
+            fig.update_yaxes(autorange="reversed", title="")
+            fig.update_xaxes(tickformat="%d %b", dtick=604800000, gridcolor='#eee')
+            
+            fig.update_layout(
+                margin=dict(l=10, r=10, t=10, b=10),
+                legend=dict(orientation="h", y=1.1)
+            )
+            
+            # เส้น Today
+            fig.add_vline(x=datetime.now().timestamp()*1000, line_dash="dot", line_color="red")
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+        else:
+            st.warning("⚠️ ไม่พบข้อมูลงานในเงื่อนไขที่เลือก")
+    else:
+        st.info("📭 ยังไม่มีข้อมูลในระบบ")
+# with tab2: # แผนผัง (Timeline)
+#     # 1. ดึงและเตรียมข้อมูล
+#     df = calculate_status_and_score(st.session_state['data'].copy())
+    
+#     if not df.empty: df = df[df['Employee'].isin(sel_emps)]
+    
+#     if not df.empty:
+#         df['Start'] = pd.to_datetime(df['Start_Date'], errors='coerce')
+#         df['End'] = pd.to_datetime(df['End_Date'], errors='coerce')
+#         df = df.dropna(subset=['Start', 'End'])
         
-        df['Visual_End'] = df['End'] + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
-        df['Label'] = df['Progress'].astype(str) + "%"
+#         # -----------------------------------------------------------
+#         # 🔥 จุดสำคัญ 1: จัดเรียงข้อมูล (Sorting)
+#         # เรียงตาม "ชื่อโปรเจกต์" ก่อน (ก-ฮ) -> แล้วค่อยตามด้วย "วันที่เริ่ม"
+#         # -----------------------------------------------------------
+#         df = df.sort_values(by=['Main_Task', 'Start'], ascending=[True, True])
         
-        chart_height = 400 + (len(df) * 35)
+#         # สร้างชื่อแกน Y
+#         df['Task_Display'] = "📂 " + df['Main_Task'] + " | " + df['Sub_Task']
         
-        # --- สร้างกราฟ ---
-        fig = px.timeline(
-            df, 
-            x_start="Start", 
-            x_end="Visual_End", 
-            y="Task_Display", 
-            color="Employee", 
-            text="Label", 
-            height=chart_height, 
-            color_discrete_sequence=px.colors.qualitative.Pastel,
-            opacity=0.9,
-            hover_data={
-                "Main_Task": True, 
-                "Sub_Task": True, 
-                "Task_Display": False,
-                "Start": "|%d %b %Y",
-                "End": "|%d %b %Y"
-            }
-        )
+#         df['Visual_End'] = df['End'] + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+#         df['Label'] = df['Progress'].astype(str) + "%"
         
-        # -----------------------------------------------------------
-        # 🔥 จุดสำคัญ 2: บังคับลำดับแกน Y (Force Order)
-        # สั่งให้เรียงตามลิสต์ใน DataFrame ที่เรา sort ไว้แล้วเท่านั้น (ป้องกันกราฟเรียงมั่ว)
-        # -----------------------------------------------------------
-        fig.update_yaxes(
-            autorange="reversed",     # ให้ตัวแรกอยู่บรรทัดบนสุด
-            title="", 
-            type='category',
-            categoryorder='array',    # เปิดโหมดบังคับเรียง
-            categoryarray=df['Task_Display'] # ยัดไส้ลำดับที่ถูกต้องเข้าไป
-        )
+#         chart_height = 400 + (len(df) * 35)
         
-        # ตั้งค่าแกน X เป็นรายสัปดาห์
-        fig.update_xaxes(
-            title="",
-            tickformat="%d %b",   
-            dtick=604800000,      # 7 วัน
-            gridcolor='#eee'
-        )
+#         # --- สร้างกราฟ ---
+#         fig = px.timeline(
+#             df, 
+#             x_start="Start", 
+#             x_end="Visual_End", 
+#             y="Task_Display", 
+#             color="Employee", 
+#             text="Label", 
+#             height=chart_height, 
+#             color_discrete_sequence=px.colors.qualitative.Pastel,
+#             opacity=0.9,
+#             hover_data={
+#                 "Main_Task": True, 
+#                 "Sub_Task": True, 
+#                 "Task_Display": False,
+#                 "Start": "|%d %b %Y",
+#                 "End": "|%d %b %Y"
+#             }
+#         )
         
-        fig.update_layout(
-            barmode='group', 
-            margin=dict(l=10, r=10, t=10, b=10), 
-            legend=dict(orientation="h", y=1.02, x=0),
-        )
+#         # -----------------------------------------------------------
+#         # 🔥 จุดสำคัญ 2: บังคับลำดับแกน Y (Force Order)
+#         # สั่งให้เรียงตามลิสต์ใน DataFrame ที่เรา sort ไว้แล้วเท่านั้น (ป้องกันกราฟเรียงมั่ว)
+#         # -----------------------------------------------------------
+#         fig.update_yaxes(
+#             autorange="reversed",     # ให้ตัวแรกอยู่บรรทัดบนสุด
+#             title="", 
+#             type='category',
+#             categoryorder='array',    # เปิดโหมดบังคับเรียง
+#             categoryarray=df['Task_Display'] # ยัดไส้ลำดับที่ถูกต้องเข้าไป
+#         )
         
-        fig.add_vline(x=datetime.now().timestamp()*1000, line_dash="dot", line_color="red", annotation_text="Today")
+#         # ตั้งค่าแกน X เป็นรายสัปดาห์
+#         fig.update_xaxes(
+#             title="",
+#             tickformat="%d %b",   
+#             dtick=604800000,      # 7 วัน
+#             gridcolor='#eee'
+#         )
         
-        st.plotly_chart(fig, use_container_width=True)
+#         fig.update_layout(
+#             barmode='group', 
+#             margin=dict(l=10, r=10, t=10, b=10), 
+#             legend=dict(orientation="h", y=1.02, x=0),
+#         )
         
-    else: 
-        st.info("📭 ยังไม่มีข้อมูลงาน")
+#         fig.add_vline(x=datetime.now().timestamp()*1000, line_dash="dot", line_color="red", annotation_text="Today")
+        
+#         st.plotly_chart(fig, use_container_width=True)
+        
+#     else: 
+#         st.info("📭 ยังไม่มีข้อมูลงาน")
 
 with tab3: # อัพเดต
     st.info("👆 คลิกเลือกงานในตาราง -> จะมีปุ่ม 'แก้ไข' โผล่มาด้านล่าง")
