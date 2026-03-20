@@ -70,7 +70,7 @@ def load_data():
             st.session_state['projects'] = df_projs['Project'].dropna().unique().tolist() if not df_projs.empty else []
 
             return df_logs, st.session_state['employees'], st.session_state['projects']
-        except Exception as e:
+        except:
             return pd.DataFrame(columns=expected_cols), [], []
     return pd.DataFrame(), [], []
 
@@ -95,28 +95,17 @@ def save_data(df_to_save):
 def show_task_info(task_name, project_name):
     df = st.session_state['data']
     team = df[(df['Main_Task'] == project_name) & (df['Sub_Task'] == task_name)]
-    
     st.subheader(f"📌 {task_name}")
-    st.caption(f"📁 โปรเจกต์: {project_name}")
     st.divider()
-    
-    if team.empty:
-        st.write("ไม่พบข้อมูลผู้รับผิดชอบ")
-    else:
-        for _, row in team.iterrows():
-            with st.container(border=True):
-                c1, c2 = st.columns([1, 4])
-                c1.markdown("### 👤")
-                c2.markdown(f"**{row['Employee']}**")
-                c2.progress(int(row['Progress'])/100)
-                c2.write(f"ความคืบหน้า: {int(row['Progress'])}%")
-                if row['Issue'] and row['Issue'] != "":
-                    st.info(f"📝 **บันทึก:** {row['Issue']}")
-    
-    if st.button("ปิดหน้าต่าง", use_container_width=True):
-        st.rerun()
+    for _, row in team.iterrows():
+        with st.container(border=True):
+            c1, c2 = st.columns([1, 4])
+            c1.markdown("### 👤")
+            c2.markdown(f"**{row['Employee']}**")
+            c2.progress(int(row['Progress'])/100)
+            if row['Issue']: st.info(f"📝 {row['Issue']}")
 
-@st.dialog("📝 อัปเดตงาน (Sync ทีม)")
+@st.dialog("📝 อัปเดตงาน (Group Sync)")
 def update_task_dialog(index, row_data):
     df = st.session_state['data']
     task_name, project_name = row_data['Sub_Task'], row_data['Main_Task']
@@ -124,7 +113,7 @@ def update_task_dialog(index, row_data):
     
     st.markdown(f"📁 **โปรเจกต์:** {project_name}  \n📌 **งาน:** {task_name}  \n👥 **ทีมงาน:** {', '.join(team)}")
     new_prog = st.slider("ความคืบหน้า (%)", 0, 100, int(row_data['Progress']))
-    new_issue = st.text_area("บันทึกวันนี้", value=str(row_data['Issue']))
+    new_issue = st.text_area("บันทึกเพิ่มเติม", value=str(row_data['Issue']))
     sync_all = st.checkbox("🔄 อัปเดตให้ทุกคนพร้อมกัน", value=True)
     
     c1, c2 = st.columns(2)
@@ -137,7 +126,7 @@ def update_task_dialog(index, row_data):
             df.at[index, 'Progress'] = new_prog
             df.at[index, 'Issue'] = new_issue
         if save_data(df):
-            st.toast("✅ อัปเดตเรียบร้อย", icon="🚀")
+            st.toast("✅ อัปเดตเรียบร้อย!", icon="🚀")
             st.rerun()
     if c2.button("ยกเลิก", use_container_width=True): st.rerun()
 
@@ -164,7 +153,7 @@ with st.sidebar:
     with st.expander("📂 จัดการโปรเจกต์ (Baseline)"):
         new_p_name = st.text_input("ชื่อโปรเจกต์ใหม่")
         c1, c2 = st.columns(2)
-        p_start, p_end = c1.date_input("วันเริ่ม"), c2.date_input("วันจบ", value=date.today() + timedelta(days=30))
+        p_start, p_end = c1.date_input("เริ่ม"), c2.date_input("จบ", value=date.today() + timedelta(days=30))
         if st.button("➕ บันทึกโปรเจกต์", use_container_width=True):
             if new_p_name:
                 sh = connect_gsheet()
@@ -172,9 +161,9 @@ with st.sidebar:
                 st.toast(f"💾 บันทึก {new_p_name} แล้ว"); st.rerun()
 
 # ==========================================
-# 7. MAIN UI
+# 7. MAIN UI (5 TABS)
 # ==========================================
-tabs = st.tabs(["📝 ลงทะเบียน", "📊 แผนผัง & Popup", "🛠️ อัพเดต", "🏆 ผลงาน", "📑 รายงาน"])
+tabs = st.tabs(["📝 ลงทะเบียน", "📊 แผนผัง & รายละเอียด", "🛠️ อัปเดต", "🏆 ผลงาน", "📑 รายงาน"])
 
 with tabs[0]: # ลงทะเบียน
     with st.form("task_reg", clear_on_submit=True):
@@ -189,9 +178,9 @@ with tabs[0]: # ลงทะเบียน
             updated = pd.concat([latest_logs, pd.DataFrame(new_rows)], ignore_index=True)
             if save_data(updated):
                 st.session_state['data'] = updated
-                st.toast(f"✅ เพิ่มงาน '{sub}' สำเร็จ"); st.rerun()
+                st.toast(f"✅ บันทึกงานสำเร็จ!"); st.rerun()
 
-with tabs[1]: # แผนผัง (Interactive Popup)
+with tabs[1]: # แผนผัง & รายละเอียด (Interactive Tableแทนคลิกกราฟ)
     df_all = st.session_state['data']
     if not df_all.empty and st.session_state['projects']:
         sel_p = st.selectbox("📂 เลือกโปรเจกต์:", st.session_state['projects'], key="dash_p")
@@ -203,53 +192,46 @@ with tabs[1]: # แผนผัง (Interactive Popup)
             actual_pct = df_all[df_all['Main_Task'] == sel_p]['Progress'].mean()
             st.metric(f"Progress รวม: {sel_p}", f"{actual_pct:.1f}%")
 
+            # Gantt Chart
             df_sub = df_all[(df_all['Main_Task'] == sel_p) & (df_all['Employee'].isin(sel_emps_filter))].copy()
             if not df_sub.empty:
                 df_sub['Start'], df_sub['End_V'] = df_sub['Start_Date'], df_sub['End_Date'] + pd.Timedelta(days=1)
-                df_sub['Type'] = "📌 งานย่อย"
                 df_sub['Label'] = df_sub['Progress'].astype(int).astype(str) + "%"
 
                 summary_row = pd.DataFrame([{
                     'Sub_Task': f"🏢 Baseline: {sel_p}", 'Employee': 'ALL', 'Start': p_s, 'End_V': p_e + pd.Timedelta(days=1), 
                     'Progress': actual_pct, 'Type': "🏢 โปรเจกต์หลัก", 'Label': f"{int(actual_pct)}%"
                 }])
+                df_sub['Type'] = "📌 งานย่อย"
 
                 df_plot = pd.concat([summary_row, df_sub], ignore_index=True)
-                
-                # --- สร้างกราฟ ---
-                fig = px.timeline(
-                    df_plot, x_start="Start", x_end="End_V", y="Sub_Task", color="Type", text="Label", height=450,
-                    color_discrete_map={"🏢 โปรเจกต์หลัก": "#333333", "📌 งานย่อย": "#636EFA"},
-                    custom_data=["Sub_Task"] # ส่งชื่องานเข้าไปในกราฟเพื่อใช้ดักจับ
-                )
+                fig = px.timeline(df_plot, x_start="Start", x_end="End_V", y="Sub_Task", color="Type", text="Label", height=400,
+                                 color_discrete_map={"🏢 โปรเจกต์หลัก": "#333333", "📌 งานย่อย": "#636EFA"})
                 fig.update_traces(patch={"width": 0.7}, selector={"name": "🏢 โปรเจกต์หลัก"})
                 fig.update_traces(patch={"width": 0.35}, selector={"name": "📌 งานย่อย"})
                 fig.update_yaxes(autorange="reversed")
                 fig.add_vline(x=datetime.now().timestamp()*1000, line_dash="dot", line_color="red")
-                
-                st.info("💡 คลิกที่แท่งงานย่อยในกราฟ เพื่อดูรายชื่อคนทำงาน")
-                
-                # 🔥 จุดที่แก้ไข: ใช้ selection_mode="points" และจับเหตุการณ์
-                selected_point = st.plotly_chart(fig, use_container_width=True, on_select="rerun", selection_mode="points")
-                
-                # ตรวจสอบการคลิก
-                if selected_point and "selection" in selected_point and "points" in selected_point["selection"]:
-                    points = selected_point["selection"]["points"]
-                    if points:
-                        # ดึงชื่อ Task จาก custom_data ที่เราใส่ไว้ในตอนสร้าง fig
-                        t_name = points[0].get("y") 
-                        if t_name and "Baseline" not in t_name:
-                            show_task_info(t_name, sel_p)
+                st.plotly_chart(fig, use_container_width=True)
 
-with tabs[2]: # อัปเดต
-    st.subheader("🛠️ คลิกเลือกแถวงานเพื่ออัปเดตยกทีม")
+                # 💡 ทางเลือกใหม่: ติ๊กเลือกงานย่อยจากตารางด้านล่างเพื่อดู Popup รายชื่อ
+                st.markdown("---")
+                st.markdown("🔍 **คลิกเลือกงานในตารางเพื่อดูรายชื่อผู้รับผิดชอบและบันทึก**")
+                task_list_df = df_sub[['Sub_Task', 'Progress']].drop_duplicates()
+                event_info = st.dataframe(task_list_df, use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single-row")
+                
+                if event_info.selection.rows:
+                    selected_task = task_list_df.iloc[event_info.selection.rows[0]]['Sub_Task']
+                    show_task_info(selected_task, sel_p)
+
+with tabs[2]: # อัปเดต (Group Sync)
+    st.subheader("🛠️ คลิกเลือกงานจากตารางเพื่ออัปเดตยกทีม")
     df_upd = st.session_state['data'].copy()
     if not df_upd.empty:
         event = st.dataframe(df_upd[['Sub_Task', 'Main_Task', 'Employee', 'Progress', 'Issue']], 
                             use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single-row")
         if event.selection.rows:
             idx = event.selection.rows[0]
-            if st.button(f"✏️ แก้ไขงาน: {df_upd.iloc[idx]['Sub_Task']}", type="primary", use_container_width=True):
+            if st.button(f"✏️ อัปเดตงาน: {df_upd.iloc[idx]['Sub_Task']}", type="primary", use_container_width=True):
                 update_task_dialog(idx, df_upd.iloc[idx])
 
 with tabs[3]: # ผลงาน
@@ -260,4 +242,5 @@ with tabs[3]: # ผลงาน
 
 with tabs[4]: # รายงาน
     if not df_all.empty:
+        st.subheader("📊 สรุปภาพรวมโปรเจกต์")
         st.table(df_all.groupby('Main_Task')['Progress'].mean().reset_index())
