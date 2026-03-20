@@ -197,75 +197,67 @@ with tabs[1]:
         st.plotly_chart(fig, use_container_width=True)
 
 # --- TAB 2: แก้ไข/ลบข้อมูล (Full Admin) ---
-# --- TAB 2: จัดการข้อมูล (เลือก > ตรวจสอบ > ดำเนินการ) ---
+# --- TAB 2: จัดการข้อมูล (ฉบับ Smart Status Check) ---
 with tabs[2]:
-    st.subheader("🛠️ ระบบจัดการงาน AII (Selection Control)")
-    df_manage = st.session_state.get('data', pd.DataFrame()).copy()
+    st.subheader("🛠️ ระบบจัดการงาน AII (Smart Status Control)")
+    df_raw = st.session_state.get('data', pd.DataFrame()).copy()
     
-    if not df_manage.empty:
-        # 1. แสดงตารางให้เลือก (เพิ่มคอลัมน์เลือกไว้หน้าสุด)
-        if "Select" not in df_manage.columns:
-            df_manage.insert(0, "Select", False)
+    if not df_raw.empty:
+        st.info("💡 แก้ไข Progress เป็น 100 เพื่อให้ระบบเปลี่ยนสถานะเป็น 'เสร็จสิ้น' อัตโนมัติ")
+        
+        # เพิ่มคอลัมน์เลือกหน้าสุด
+        if "Select" not in df_raw.columns:
+            df_raw.insert(0, "Select", False)
             
-        st.write("🔍 **1. ติ๊กเลือกงานที่ต้องการจัดการ:**")
         edited_df = st.data_editor(
-            df_manage,
+            df_raw,
             column_config={
                 "Select": st.column_config.CheckboxColumn("เลือก", default=False),
                 "Progress": st.column_config.NumberColumn("Progress (%)", min_value=0, max_value=100),
-                "Start_Date": st.column_config.DateColumn("เริ่ม"),
-                "End_Date": st.column_config.DateColumn("จบ"),
+                "Status": st.column_config.SelectboxColumn("สถานะ", options=["⏳ กำลังทำ", "✅ เสร็จสมบูรณ์", "⚠️ ติดปัญหา"])
             },
             hide_index=True,
             use_container_width=True,
-            key="admin_editor_v7"
+            key="admin_editor_v8"
         )
 
-        # 2. ตรวจสอบแถวที่ถูกเลือก
         selected_rows = edited_df[edited_df["Select"] == True]
         
-        if not selected_rows.empty:
-            st.divider()
-            st.write(f"📦 **งานที่เลือกอยู่ ({len(selected_rows)} รายการ):**")
-            
-            # --- ตรวจสอบ Progress ---
-            has_completed = any(selected_rows['Progress'] == 100)
-            avg_progress = selected_rows['Progress'].mean()
-            
-            if has_completed:
-                st.warning("⚠️ พบงานที่เสร็จ 100% ในรายการที่เลือก (กรุณาตรวจสอบก่อนลบ)")
-            
-            st.info(f"📊 Progress เฉลี่ยของงานที่เลือก: {avg_progress:.1f}%")
+        c1, c2 = st.columns(2)
+        
+        # --- 💾 ปุ่มบันทึกการแก้ไข (พร้อมระบบเช็ค 100%) ---
+        if c1.button("💾 ยืนยันการอัปเดตข้อมูล", type="primary", use_container_width=True):
+            # 🔥 Logic พิเศษ: ถ้า Progress = 100 ให้ปรับ Status เป็น "เสร็จสมบูรณ์" อัตโนมัติ
+            def auto_status(row):
+                if row['Progress'] == 100:
+                    return "✅ เสร็จสมบูรณ์"
+                elif row['Progress'] > 0:
+                    return "⏳ กำลังทำ"
+                return row['Status']
 
-            # 3. ปุ่มเลือกการกระทำ (Action Buttons)
-            c1, c2 = st.columns(2)
+            # สั่งรัน Logic เปลี่ยนสถานะกับทุกแถวที่แก้ไข
+            edited_df['Status'] = edited_df.apply(auto_status, axis=1)
             
-            # --- ปุ่มแก้ไข ---
-            if c1.button("💾 ยืนยันการ 'แก้ไข' ข้อมูล", type="primary", use_container_width=True):
-                # เอาคอลัมน์ Select ออกแล้วบันทึกทั้งหมด (รวมถึงแถวที่ไม่ได้เลือกแต่ถูกแก้ค่า)
-                final_df = edited_df.drop(columns=["Select"])
-                if save_data(final_df):
-                    st.success("✅ อัปเดตข้อมูลการแก้ไขเรียบร้อย!")
-                    st.session_state['data'] = final_df
-                    st.rerun()
+            final_df = edited_df.drop(columns=["Select"])
+            if save_data(final_df):
+                st.success("✅ อัปเดตข้อมูลและสถานะเรียบร้อยแล้ว!")
+                st.session_state['data'] = final_df
+                st.rerun()
 
-            # --- ปุ่มลบ (มีเงื่อนไขเช็ค Progress) ---
-            if c2.button("🗑️ ยืนยันการ 'ลบ' งานที่เลือก", use_container_width=True):
-                # ถ้ามีงานที่ Progress > 0 อาจจะไม่อยากให้ลบง่ายๆ
-                if any(selected_rows['Progress'] > 0):
-                    st.error("❌ ไม่สามารถลบงานที่มี Progress มากกว่า 0% ได้ (โปรดแก้ Progress เป็น 0 ก่อนลบเพื่อความปลอดภัย)")
+        # --- 🗑️ ปุ่มลบ (ต้องเลือกก่อน) ---
+        if c2.button("🗑️ ยืนยันการลบงานที่เลือก", use_container_width=True):
+            if not selected_rows.empty:
+                # เช็ค Progress ก่อนลบตามที่คุณวรายุต้องการ
+                if any(selected_rows['Progress'] == 100):
+                    st.error("❌ ห้ามลบงานที่เสร็จ 100% แล้ว (โปรดแก้ Progress ลงก่อนถ้าต้องการลบจริงๆ)")
                 else:
-                    # ลบเฉพาะแถวที่เลือก (Select == True)
                     remaining_df = edited_df[edited_df["Select"] == False].drop(columns=["Select"])
                     if save_data(remaining_df):
-                        st.warning(f"🗑️ ลบงานออกไป {len(selected_rows)} รายการเรียบร้อย")
+                        st.warning(f"🗑️ ลบงานออกไป {len(selected_rows)} รายการแล้ว")
                         st.session_state['data'] = remaining_df
                         st.rerun()
-        else:
-            st.caption("☝️ กรุณาติ๊กเลือกงานในตารางด้านบนเพื่อแสดงปุ่มจัดการ")
-            
-    else:
-        st.info("📭 ยังไม่มีข้อมูลงานในระบบ")
+            else:
+                st.error("❌ กรุณา 'ติ๊กเลือก' งานที่จะลบก่อนครับ")
 
 # --- TAB 3: อันดับผลงาน ---
 with tabs[3]:
