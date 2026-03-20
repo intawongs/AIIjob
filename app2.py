@@ -103,6 +103,7 @@ def show_task_info(task_name, project_name):
             c1.markdown("### 👤")
             c2.markdown(f"**{row['Employee']}**")
             c2.progress(int(row['Progress'])/100)
+            c2.caption(f"ความคืบหน้า: {int(row['Progress'])}%")
             if row['Issue']: st.info(f"📝 {row['Issue']}")
 
 @st.dialog("📝 อัปเดตงาน (Group Sync)")
@@ -180,7 +181,7 @@ with tabs[0]: # ลงทะเบียน
                 st.session_state['data'] = updated
                 st.toast(f"✅ บันทึกงานสำเร็จ!"); st.rerun()
 
-with tabs[1]: # แผนผัง & รายละเอียด (Interactive Tableแทนคลิกกราฟ)
+with tabs[1]: # แผนผัง & รายละเอียด (Overlay Progress Bar)
     df_all = st.session_state['data']
     if not df_all.empty and st.session_state['projects']:
         sel_p = st.selectbox("📂 เลือกโปรเจกต์:", st.session_state['projects'], key="dash_p")
@@ -188,42 +189,68 @@ with tabs[1]: # แผนผัง & รายละเอียด (Interactive
         
         if not master.empty and sel_p in master['Project'].values:
             p_info = master[master['Project'] == sel_p].iloc[0]
-            p_s, p_e = pd.to_datetime(p_info['Start_Date']), pd.to_datetime(p_info['End_Date'])
+            p_start_dt = pd.to_datetime(p_info['Start_Date'])
+            p_end_dt = pd.to_datetime(p_info['End_Date']) + pd.Timedelta(days=1)
             actual_pct = df_all[df_all['Main_Task'] == sel_p]['Progress'].mean()
+            
             st.metric(f"Progress รวม: {sel_p}", f"{actual_pct:.1f}%")
 
-            # Gantt Chart
+            # --- Gantt Chart Logic: Double Layer ---
             df_sub = df_all[(df_all['Main_Task'] == sel_p) & (df_all['Employee'].isin(sel_emps_filter))].copy()
             if not df_sub.empty:
-                df_sub['Start'], df_sub['End_V'] = df_sub['Start_Date'], df_sub['End_Date'] + pd.Timedelta(days=1)
-                df_sub['Label'] = df_sub['Progress'].astype(int).astype(str) + "%"
+                plot_data_list = []
+                
+                # 1. สร้างแถบ Baseline (ชั้นหลัง) และ Actual (ชั้นหน้า) ของโปรเจกต์หลัก
+                plot_data_list.append({'Task': f"🏢 {sel_p}", 'Start': p_start_dt, 'End': p_end_dt, 'Type': 'Planned', 'Label': ''})
+                p_actual_end = p_start_dt + ((p_end_dt - p_start_dt) * (actual_pct / 100))
+                plot_data_list.append({'Task': f"🏢 {sel_p}", 'Start': p_start_dt, 'End': p_actual_end, 'Type': 'Actual', 'Label': f"{int(actual_pct)}%"})
 
-                summary_row = pd.DataFrame([{
-                    'Sub_Task': f"🏢 Baseline: {sel_p}", 'Employee': 'ALL', 'Start': p_s, 'End_V': p_e + pd.Timedelta(days=1), 
-                    'Progress': actual_pct, 'Type': "🏢 โปรเจกต์หลัก", 'Label': f"{int(actual_pct)}%"
-                }])
-                df_sub['Type'] = "📌 งานย่อย"
+                # 2. สร้างแถบของงานย่อยแต่ละงาน
+                # รวมกลุ่มตามงานย่อย (โชว์ความคืบหน้าเฉลี่ยของงานนั้น)
+                df_grouped = df_sub.groupby('Sub_Task').agg({'Start_Date': 'min', 'End_Date': 'max', 'Progress': 'mean'}).reset_index()
+                
+                for _, row in df_grouped.iterrows():
+                    s, e = row['Start_Date'], row['End_Date'] + pd.Timedelta(days=1)
+                    # แถบหลัง (Planned Frame)
+                    plot_data_list.append({'Task': row['Sub_Task'], 'Start': s, 'End': e, 'Type': 'Planned_Sub', 'Label': ''})
+                    # แถบหน้า (Actual Progress)
+                    progress_dur = (e - s) * (row['Progress'] / 100)
+                    plot_data_list.append({'Task': row['Sub_Task'], 'Start': s, 'End': s + progress_dur, 'Type': 'Actual_Sub', 'Label': f"{int(row['Progress'])}%"})
 
-                df_plot = pd.concat([summary_row, df_sub], ignore_index=True)
-                fig = px.timeline(df_plot, x_start="Start", x_end="End_V", y="Sub_Task", color="Type", text="Label", height=400,
-                                 color_discrete_map={"🏢 โปรเจกต์หลัก": "#333333", "📌 งานย่อย": "#636EFA"})
-                fig.update_traces(patch={"width": 0.7}, selector={"name": "🏢 โปรเจกต์หลัก"})
-                fig.update_traces(patch={"width": 0.35}, selector={"name": "📌 งานย่อย"})
-                fig.update_yaxes(autorange="reversed")
-                fig.add_vline(x=datetime.now().timestamp()*1000, line_dash="dot", line_color="red")
+                df_plot = pd.DataFrame(plot_data_list)
+                
+                fig = px.timeline(
+                    df_plot, x_start="Start", x_end="End", y="Task", color="Type", text="Label", height=450,
+                    color_discrete_map={
+                        "Planned": "#E5E7E9",      # เทาอ่อน (หลังโปรเจกต์)
+                        "Actual": "#2C3E50",       # ดำ/น้ำเงินเข้ม (หน้าโปรเจกต์)
+                        "Planned_Sub": "#EBF5FB",  # ฟ้าจางมาก (หลังงานย่อย)
+                        "Actual_Sub": "#3498DB"    # ฟ้าสดใส (หน้างานย่อย)
+                    }
+                )
+                
+                # ปรับแต่งให้แท่ง Actual ทับ Planned สวยๆ
+                fig.update_traces(textposition='inside', insidetextanchor='start')
+                fig.update_traces(patch={"width": 0.7}, selector={"name": "Planned"})
+                fig.update_traces(patch={"width": 0.7}, selector={"name": "Actual"})
+                fig.update_traces(patch={"width": 0.4}, selector={"name": "Planned_Sub"})
+                fig.update_traces(patch={"width": 0.4}, selector={"name": "Actual_Sub"})
+                
+                fig.update_yaxes(autorange="reversed", title="")
+                fig.add_vline(x=datetime.now().timestamp()*1000, line_dash="dot", line_color="red", annotation_text="วันนี้")
                 st.plotly_chart(fig, use_container_width=True)
 
-                # 💡 ทางเลือกใหม่: ติ๊กเลือกงานย่อยจากตารางด้านล่างเพื่อดู Popup รายชื่อ
+                # 🔍 ตารางรายละเอียด (Popup)
                 st.markdown("---")
-                st.markdown("🔍 **คลิกเลือกงานในตารางเพื่อดูรายชื่อผู้รับผิดชอบและบันทึก**")
-                task_list_df = df_sub[['Sub_Task', 'Progress']].drop_duplicates()
+                st.markdown("🔍 **เลือกงานเพื่อดูรายชื่อผู้รับผิดชอบและบันทึก**")
+                task_list_df = df_grouped[['Sub_Task', 'Progress']]
                 event_info = st.dataframe(task_list_df, use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single-row")
                 
                 if event_info.selection.rows:
                     selected_task = task_list_df.iloc[event_info.selection.rows[0]]['Sub_Task']
                     show_task_info(selected_task, sel_p)
 
-with tabs[2]: # อัปเดต (Group Sync)
+with tabs[2]: # อัปเดต
     st.subheader("🛠️ คลิกเลือกงานจากตารางเพื่ออัปเดตยกทีม")
     df_upd = st.session_state['data'].copy()
     if not df_upd.empty:
