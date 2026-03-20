@@ -224,8 +224,8 @@ with tabs[1]: # แผนผัง (Double Layer Gantt)
                     plot_data.append({'Task': row['Sub_Task'], 'Start': s, 'End': s + dur, 'Type': 'Actual_Sub', 'Label': f"{int(row['Progress'])}%"})
 
                 df_p = pd.DataFrame(plot_data)
-                fig = px.timeline(df_p, x_start="Start", x_end="End", y="Task", color="Type", text="Label", height=450,
-                                 color_discrete_map={"Planned": "#E5E7E9", "Actual": "#2C3E50", "Planned_Sub": "#EBF5FB", "Actual_Sub": "#3498DB"})
+                fig = px.timeline(df_p, x_start="Start", x_end="End", y="Task", color="Type", text="Label", height=300,
+                                 color_discrete_map={"Planned": "#E5E7E9", "Actual": "#EC0C0C", "Planned_Sub": "#EBF5FB", "Actual_Sub": "#53D841"})
                 fig.update_traces(patch={"width": 0.7}, selector={"name": "Planned"})
                 fig.update_traces(patch={"width": 0.7}, selector={"name": "Actual"})
                 fig.update_traces(patch={"width": 0.35}, selector={"name": "Planned_Sub"})
