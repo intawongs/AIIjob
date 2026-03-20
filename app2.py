@@ -197,49 +197,56 @@ with tabs[1]:
         st.plotly_chart(fig, use_container_width=True)
 
 # --- TAB 2: แก้ไข/ลบข้อมูล (Full Admin) ---
-# --- TAB 2: แก้ไข/ลบข้อมูล (ฉบับเพิ่มตัวเตือน) ---
+# --- TAB 2: แก้ไข/ลบข้อมูล (Simplified Version) ---
 with tabs[2]:
-    st.subheader("🛠️ การจัดการข้อมูล (แก้ไข / ลบ)")
+    st.subheader("🛠️ การจัดการงาน (แก้ไขข้อมูล หรือ ติ๊กเพื่อลบ)")
+    
+    # 1. ดึงข้อมูลจาก Session
     df_raw = st.session_state.get('data', pd.DataFrame()).copy()
     
     if not df_raw.empty:
-        st.info("💡 คลิกที่ช่องเพื่อแก้ไข | ติ๊กถูกหน้าแถวเพื่อเลือก 'ลบ'")
+        # เพิ่มคอลัมน์ Checkbox สำหรับเลือกว่าจะ "ลบ" แถวไหน
+        # เราวางไว้หน้าสุดเพื่อให้คุณวรายุเห็นชัดๆ
+        if "Action_Delete" not in df_raw.columns:
+            df_raw.insert(0, "Action_Delete", False)
         
-        # เพิ่มคอลัมน์ Checkbox สำหรับการเลือก
-        df_raw.insert(0, "เลือก", False)
+        st.info("💡 วิธีใช้: แก้ไขข้อมูลในตารางได้เลย | ถ้าจะลบให้ 'ติ๊กถูก' หน้าแถวนั้น | เสร็จแล้วกดปุ่มด้านล่าง")
         
+        # 2. ตัว Editor หลัก
         edited_df = st.data_editor(
             df_raw,
             column_config={
-                "เลือก": st.column_config.CheckboxColumn("ลบ?", default=False),
-                "Progress": st.column_config.NumberColumn("Progress (%)", min_value=0, max_value=100),
+                "Action_Delete": st.column_config.CheckboxColumn("🗑️ ลบ?", default=False),
+                "Progress": st.column_config.NumberColumn("Progress (%)", min_value=0, max_value=100, step=1),
+                "Start_Date": st.column_config.DateColumn("เริ่ม"),
+                "End_Date": st.column_config.DateColumn("จบ"),
             },
             hide_index=True, 
             use_container_width=True, 
-            key="admin_editor_v6"
+            key="admin_editor_final"
         )
         
-        c1, c2 = st.columns(2)
-        
-        # ปุ่มบันทึก
-        if c1.button("💾 บันทึกการแก้ไข", use_container_width=True, type="primary"):
-            final_save = edited_df.drop(columns=["เลือก"])
-            if save_data(final_save):
-                st.success("✅ อัปเดตข้อมูลลง Google Sheets สำเร็จ!")
-                st.session_state['data'] = final_save
+        # 3. ปุ่มยืนยันการทำรายการ (ปุ่มเดียวจัดการทั้ง แก้ไข และ ลบ)
+        if st.button("🚀 ยืนยันการเปลี่ยนแปลงทั้งหมด (Update & Delete)", type="primary", use_container_width=True):
+            
+            # แยกข้อมูล: แถวไหนที่ "ติ๊กถูก" คือต้องการลบ | แถวไหน "ไม่ติ๊ก" คือต้องการเก็บ (และอัปเดตค่าที่แก้)
+            to_delete_count = len(edited_df[edited_df["Action_Delete"] == True])
+            final_to_save = edited_df[edited_df["Action_Delete"] == False].drop(columns=["Action_Delete"])
+            
+            # บันทึกลง Google Sheets
+            if save_data(final_to_save):
+                if to_delete_count > 0:
+                    st.warning(f"⚠️ ทำการลบข้อมูล {to_delete_count} รายการ และอัปเดตส่วนที่แก้ไขเรียบร้อย!")
+                else:
+                    st.success("✅ อัปเดตข้อมูลที่แก้ไขเรียบร้อยแล้ว!")
+                
+                # อัปเดต State และรีเฟรชหน้าจอ
+                st.session_state['data'] = final_to_save
                 st.rerun()
-        
-        # ปุ่มลบ (เพิ่มระบบเช็ค)
-        if c2.button("🗑️ ลบแถวที่เลือก", use_container_width=True):
-            to_delete = edited_df[edited_df["เลือก"] == True]
-            if not to_delete.empty:
-                remaining = edited_df[edited_df["เลือก"] == False].drop(columns=["เลือก"])
-                if save_data(remaining):
-                    st.warning(f"⚠️ ลบข้อมูล {len(to_delete)} รายการเรียบร้อย")
-                    st.session_state['data'] = remaining
-                    st.rerun()
             else:
-                st.error("❌ กรุณา 'ติ๊กถูก' หน้าแถวที่ต้องการลบก่อนกดปุ่มนี้ครับ")
+                st.error("❌ เกิดข้อผิดพลาดในการเชื่อมต่อ Google Sheets")
+    else:
+        st.write("📭 ยังไม่มีข้อมูลงานในระบบ")
 
 # --- TAB 3: อันดับผลงาน ---
 with tabs[3]:
