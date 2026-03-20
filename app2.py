@@ -205,7 +205,7 @@ with tabs[1]: # แผนผัง (Summary + Sub-tasks)
                 df_sub['Type'] = "📌 งานย่อย"
 
                 summary_row = pd.DataFrame([{
-                    'Sub_Task': f"🎯 ภาพรวม: {sel_p:.2f}%", 'Employee': 'OVERALL', 
+                    'Sub_Task': f"🎯 ภาพรวม: {sel_p}", 'Employee': 'OVERALL', 
                     'Start': p_s, 'End_V': p_e + pd.Timedelta(days=1), 'Progress': f"{actual_pct:.2f}%", 'Type': "🏢 โปรเจกต์หลัก"
                 }])
 
