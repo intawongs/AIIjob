@@ -189,7 +189,7 @@ with tabs[0]: # ลงทะเบียน
                 st.session_state['data'] = updated
                 st.toast(f"✅ เพิ่มงาน '{sub}' สำเร็จ"); st.rerun()
 
-with tabs[1]: # แผนผัง (เรียงจากบนลงล่างตามเวลา)
+with tabs[1]: # แผนผัง (เรียงจากบนลงล่างตามเวลา + แยกความหนาเส้น)
     df_all = st.session_state['data']
     if not df_all.empty and st.session_state['projects']:
         sel_p = st.selectbox("📂 ดูภาพรวม:", st.session_state['projects'], key="dash_p_sel")
@@ -224,24 +224,26 @@ with tabs[1]: # แผนผัง (เรียงจากบนลงล่�
                 df_p = pd.DataFrame(plot_data)
                 
                 # 🔥 2. สร้างลำดับ Task สำหรับแกน Y (เรียงจากบนลงล่าง)
-                # เราต้องการ [Main_Task, Sub_Task_1, Sub_Task_2, ...]
                 order = [main_task_label] + df_grouped['Sub_Task'].tolist()
                 
-                fig = px.timeline(df_p, x_start="Start", x_end="End", y="Task", color="Type", text="Label", height=400,
+                fig = px.timeline(df_p, x_start="Start", x_end="End", y="Task", color="Type", text="Label", height=500,
                                  color_discrete_map={"Planned": "#E5E7E9", "Actual": "#087FF7", "Planned_Sub": "#EBF5FB", "Actual_Sub": "#1F969E"})
                 
-                # 🔥 3. บังคับลำดับแกน Y (Plotly จะวาดจากล่างขึ้นบน เราเลยต้อง Reverse List)
+                # 🔥 3. บังคับลำดับแกน Y (Reverse List เพื่อให้ตัวแรกอยู่บนสุด)
                 fig.update_yaxes(
                     categoryorder="array", 
                     categoryarray=order[::-1], 
                     title=""
                 )
                 
-                fig.update_traces(textfont=dict(size=12, color="white", family="Arial Black"), textposition='inside')
+                # ตั้งค่าตัวอักษร
+                fig.update_traces(textfont=dict(size=14, color="white", family="Arial Black"), textposition='inside')
+                
+                # 🔥 4. ปรับความหนาแยกตามประเภท (หลักหนา 0.85 / ย่อยบาง 0.45)
                 fig.update_traces(patch={"width": 0.85}, selector={"name": "Planned"})
                 fig.update_traces(patch={"width": 0.85}, selector={"name": "Actual"})
-                fig.update_traces(patch={"width": 0.85}, selector={"name": "Planned_Sub"})
-                fig.update_traces(patch={"width": 0.85}, selector={"name": "Actual_Sub"})
+                fig.update_traces(patch={"width": 0.45}, selector={"name": "Planned_Sub"})
+                fig.update_traces(patch={"width": 0.45}, selector={"name": "Actual_Sub"})
                 
                 fig.add_vline(x=datetime.now().timestamp()*1000, line_dash="dot", line_color="red")
                 st.plotly_chart(fig, use_container_width=True)
