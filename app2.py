@@ -174,7 +174,7 @@ with tabs[1]:
         p_label = f"🏢 {sel_p}"
         plot_data.append({'Task': p_label, 'Start': p_s, 'End': p_e, 'Type': 'P_Plan', 'Label': '', 'Width': 0.8, 'Color': '#E5E8E8', 'Pos': 'inside'})
         p_act_e = p_s + ((p_e - p_s) * (p_pct / 100))
-        plot_data.append({'Task': p_label, 'Start': p_s, 'End': p_act_e, 'Type': 'P_Act', 'Label': f"{int(p_pct)}%", 'Width': 0.8, 'Color': '#2C3E50', 'Pos': 'inside'})
+        plot_data.append({'Task': p_label, 'Start': p_s, 'End': p_act_e, 'Type': 'P_Act', 'Label': f"{int(p_pct)}%", 'Width': 0.8, 'Color': "#59ABFC", 'Pos': 'inside'})
 
         # 📑 ระดับ MAIN TASK & SUB TASK
         main_tasks = df_proj['Main_Task'].unique()
