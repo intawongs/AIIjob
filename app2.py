@@ -197,56 +197,75 @@ with tabs[1]:
         st.plotly_chart(fig, use_container_width=True)
 
 # --- TAB 2: แก้ไข/ลบข้อมูล (Full Admin) ---
-# --- TAB 2: แก้ไข/ลบข้อมูล (Simplified Version) ---
+# --- TAB 2: จัดการข้อมูล (เลือก > ตรวจสอบ > ดำเนินการ) ---
 with tabs[2]:
-    st.subheader("🛠️ การจัดการงาน (แก้ไขข้อมูล หรือ ติ๊กเพื่อลบ)")
+    st.subheader("🛠️ ระบบจัดการงาน AII (Selection Control)")
+    df_manage = st.session_state.get('data', pd.DataFrame()).copy()
     
-    # 1. ดึงข้อมูลจาก Session
-    df_raw = st.session_state.get('data', pd.DataFrame()).copy()
-    
-    if not df_raw.empty:
-        # เพิ่มคอลัมน์ Checkbox สำหรับเลือกว่าจะ "ลบ" แถวไหน
-        # เราวางไว้หน้าสุดเพื่อให้คุณวรายุเห็นชัดๆ
-        if "Action_Delete" not in df_raw.columns:
-            df_raw.insert(0, "Action_Delete", False)
-        
-        st.info("💡 วิธีใช้: แก้ไขข้อมูลในตารางได้เลย | ถ้าจะลบให้ 'ติ๊กถูก' หน้าแถวนั้น | เสร็จแล้วกดปุ่มด้านล่าง")
-        
-        # 2. ตัว Editor หลัก
+    if not df_manage.empty:
+        # 1. แสดงตารางให้เลือก (เพิ่มคอลัมน์เลือกไว้หน้าสุด)
+        if "Select" not in df_manage.columns:
+            df_manage.insert(0, "Select", False)
+            
+        st.write("🔍 **1. ติ๊กเลือกงานที่ต้องการจัดการ:**")
         edited_df = st.data_editor(
-            df_raw,
+            df_manage,
             column_config={
-                "Action_Delete": st.column_config.CheckboxColumn("🗑️ ลบ?", default=False),
-                "Progress": st.column_config.NumberColumn("Progress (%)", min_value=0, max_value=100, step=1),
+                "Select": st.column_config.CheckboxColumn("เลือก", default=False),
+                "Progress": st.column_config.NumberColumn("Progress (%)", min_value=0, max_value=100),
                 "Start_Date": st.column_config.DateColumn("เริ่ม"),
                 "End_Date": st.column_config.DateColumn("จบ"),
             },
-            hide_index=True, 
-            use_container_width=True, 
-            key="admin_editor_final"
+            hide_index=True,
+            use_container_width=True,
+            key="admin_editor_v7"
         )
+
+        # 2. ตรวจสอบแถวที่ถูกเลือก
+        selected_rows = edited_df[edited_df["Select"] == True]
         
-        # 3. ปุ่มยืนยันการทำรายการ (ปุ่มเดียวจัดการทั้ง แก้ไข และ ลบ)
-        if st.button("🚀 ยืนยันการเปลี่ยนแปลงทั้งหมด (Update & Delete)", type="primary", use_container_width=True):
+        if not selected_rows.empty:
+            st.divider()
+            st.write(f"📦 **งานที่เลือกอยู่ ({len(selected_rows)} รายการ):**")
             
-            # แยกข้อมูล: แถวไหนที่ "ติ๊กถูก" คือต้องการลบ | แถวไหน "ไม่ติ๊ก" คือต้องการเก็บ (และอัปเดตค่าที่แก้)
-            to_delete_count = len(edited_df[edited_df["Action_Delete"] == True])
-            final_to_save = edited_df[edited_df["Action_Delete"] == False].drop(columns=["Action_Delete"])
+            # --- ตรวจสอบ Progress ---
+            has_completed = any(selected_rows['Progress'] == 100)
+            avg_progress = selected_rows['Progress'].mean()
             
-            # บันทึกลง Google Sheets
-            if save_data(final_to_save):
-                if to_delete_count > 0:
-                    st.warning(f"⚠️ ทำการลบข้อมูล {to_delete_count} รายการ และอัปเดตส่วนที่แก้ไขเรียบร้อย!")
+            if has_completed:
+                st.warning("⚠️ พบงานที่เสร็จ 100% ในรายการที่เลือก (กรุณาตรวจสอบก่อนลบ)")
+            
+            st.info(f"📊 Progress เฉลี่ยของงานที่เลือก: {avg_progress:.1f}%")
+
+            # 3. ปุ่มเลือกการกระทำ (Action Buttons)
+            c1, c2 = st.columns(2)
+            
+            # --- ปุ่มแก้ไข ---
+            if c1.button("💾 ยืนยันการ 'แก้ไข' ข้อมูล", type="primary", use_container_width=True):
+                # เอาคอลัมน์ Select ออกแล้วบันทึกทั้งหมด (รวมถึงแถวที่ไม่ได้เลือกแต่ถูกแก้ค่า)
+                final_df = edited_df.drop(columns=["Select"])
+                if save_data(final_df):
+                    st.success("✅ อัปเดตข้อมูลการแก้ไขเรียบร้อย!")
+                    st.session_state['data'] = final_df
+                    st.rerun()
+
+            # --- ปุ่มลบ (มีเงื่อนไขเช็ค Progress) ---
+            if c2.button("🗑️ ยืนยันการ 'ลบ' งานที่เลือก", use_container_width=True):
+                # ถ้ามีงานที่ Progress > 0 อาจจะไม่อยากให้ลบง่ายๆ
+                if any(selected_rows['Progress'] > 0):
+                    st.error("❌ ไม่สามารถลบงานที่มี Progress มากกว่า 0% ได้ (โปรดแก้ Progress เป็น 0 ก่อนลบเพื่อความปลอดภัย)")
                 else:
-                    st.success("✅ อัปเดตข้อมูลที่แก้ไขเรียบร้อยแล้ว!")
-                
-                # อัปเดต State และรีเฟรชหน้าจอ
-                st.session_state['data'] = final_to_save
-                st.rerun()
-            else:
-                st.error("❌ เกิดข้อผิดพลาดในการเชื่อมต่อ Google Sheets")
+                    # ลบเฉพาะแถวที่เลือก (Select == True)
+                    remaining_df = edited_df[edited_df["Select"] == False].drop(columns=["Select"])
+                    if save_data(remaining_df):
+                        st.warning(f"🗑️ ลบงานออกไป {len(selected_rows)} รายการเรียบร้อย")
+                        st.session_state['data'] = remaining_df
+                        st.rerun()
+        else:
+            st.caption("☝️ กรุณาติ๊กเลือกงานในตารางด้านบนเพื่อแสดงปุ่มจัดการ")
+            
     else:
-        st.write("📭 ยังไม่มีข้อมูลงานในระบบ")
+        st.info("📭 ยังไม่มีข้อมูลงานในระบบ")
 
 # --- TAB 3: อันดับผลงาน ---
 with tabs[3]:
