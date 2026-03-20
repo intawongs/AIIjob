@@ -195,7 +195,7 @@ with tabs[1]: # แผนผัง (Summary + Sub-tasks)
             
             # Progress รวม
             actual_pct = df_all[df_all['Main_Task'] == sel_p]['Progress'].mean()
-            st.metric(f"Progress รวม: {sel_p}", f"{actual_pct:.1f}%")
+            st.metric(f"Progress รวม: {sel_p}", f"{actual_pct:.2f}%")
             st.progress(actual_pct/100)
 
             # Gantt Chart
@@ -205,7 +205,7 @@ with tabs[1]: # แผนผัง (Summary + Sub-tasks)
                 df_sub['Type'] = "📌 งานย่อย"
 
                 summary_row = pd.DataFrame([{
-                    'Sub_Task': f"🎯 ภาพรวม: {sel_p}", 'Employee': 'OVERALL', 
+                    'Sub_Task': f"🎯 ภาพรวม: {sel_p:.2f}%", 'Employee': 'OVERALL', 
                     'Start': p_s, 'End_V': p_e + pd.Timedelta(days=1), 'Progress': f"{actual_pct:.2f}%", 'Type': "🏢 โปรเจกต์หลัก"
                 }])
 
