@@ -139,11 +139,10 @@ if 'data' not in st.session_state:
     st.session_state.update({"data": logs, "employees": emps, "projects": projs})
 
 # ==========================================
-# 6. SIDEBAR (ครบทุกฟังก์ชัน)
+# 6. SIDEBAR
 # ==========================================
 with st.sidebar:
     st.header("⚙️ ตั้งค่าระบบ")
-    
     if st.button("🔄 รีเฟรชข้อมูล", use_container_width=True):
         st.cache_data.clear()
         logs, emps, projs = load_data()
@@ -152,19 +151,14 @@ with st.sidebar:
 
     sel_emps_filter = st.multiselect("กรองพนักงาน (แผนผัง):", st.session_state['employees'], default=st.session_state['employees'])
 
-    st.divider()
-
-    # --- ส่วนที่หายไป: จัดการคน ---
     with st.expander("👤 จัดการคน (Add Employee)"):
         new_emp_name = st.text_input("ชื่อพนักงานใหม่", key="sidebar_new_emp")
         if st.button("➕ เพิ่มรายชื่อ", use_container_width=True):
             if new_emp_name:
                 sh = connect_gsheet()
                 sh.worksheet('Employees').append_row([new_emp_name])
-                st.toast(f"✅ เพิ่ม {new_emp_name} ลงในระบบแล้ว")
-                st.rerun()
+                st.toast(f"✅ เพิ่ม {new_emp_name} เรียบร้อย"); st.rerun()
 
-    # --- ส่วนจัดการโปรเจกต์ ---
     with st.expander("📂 จัดการโปรเจกต์ (Baseline)"):
         new_p_name = st.text_input("ชื่อโปรเจกต์ใหม่")
         c1, c2 = st.columns(2)
@@ -173,7 +167,7 @@ with st.sidebar:
             if new_p_name:
                 sh = connect_gsheet()
                 sh.worksheet('Projects').append_row([new_p_name, p_start.strftime('%Y-%m-%d'), p_end.strftime('%Y-%m-%d')])
-                st.toast(f"💾 บันทึก {new_p_name} เรียบร้อย"); st.rerun()
+                st.toast(f"💾 บันทึก {new_p_name} แล้ว"); st.rerun()
 
 # ==========================================
 # 7. MAIN UI (5 TABS)
@@ -195,7 +189,7 @@ with tabs[0]: # ลงทะเบียน
                 st.session_state['data'] = updated
                 st.toast(f"✅ บันทึกงานสำเร็จ!"); st.rerun()
 
-with tabs[1]: # แผนผัง (Double Layer Gantt)
+with tabs[1]: # แผนผัง (Double Layer Gantt + Sorting)
     df_all = st.session_state['data']
     if not df_all.empty and st.session_state['projects']:
         sel_p = st.selectbox("📂 เลือกโปรเจกต์:", st.session_state['projects'], key="dash_p")
@@ -207,30 +201,45 @@ with tabs[1]: # แผนผัง (Double Layer Gantt)
             actual_pct = df_all[df_all['Main_Task'] == sel_p]['Progress'].mean()
             st.metric(f"Progress รวม: {sel_p}", f"{actual_pct:.1f}%")
 
+            # --- Sorting Logic ---
             df_sub = df_all[(df_all['Main_Task'] == sel_p) & (df_all['Employee'].isin(sel_emps_filter))].copy()
             if not df_sub.empty:
+                # 🎯 เรียงลำดับจากวันเริ่มเก่าไปใหม่
+                df_sub = df_sub.sort_values(by='Start_Date', ascending=True)
+                
                 plot_data = []
-                # แถบ Baseline โปรเจกต์หลัก
-                plot_data.append({'Task': f"🏢 {sel_p}", 'Start': p_start_dt, 'End': p_end_dt, 'Type': 'Planned', 'Label': ''})
+                # แถบ Baseline โปรเจกต์หลัก (อยู่บนสุดเสมอ)
+                plot_data.append({'Task': f"🏢 {sel_p}", 'Start': p_start_dt, 'End': p_end_dt, 'Type': 'Planned', 'Label': '', 'Sort_Key': pd.Timestamp.min})
                 p_actual_end = p_start_dt + ((p_end_dt - p_start_dt) * (actual_pct / 100))
-                plot_data.append({'Task': f"🏢 {sel_p}", 'Start': p_start_dt, 'End': p_actual_end, 'Type': 'Actual', 'Label': f"{int(actual_pct)}%"})
+                plot_data.append({'Task': f"🏢 {sel_p}", 'Start': p_start_dt, 'End': p_actual_end, 'Type': 'Actual', 'Label': f"{int(actual_pct)}%", 'Sort_Key': pd.Timestamp.min})
 
-                # งานย่อย
+                # งานย่อย (เรียงตาม Start_Date ของแต่ละงาน)
                 df_grouped = df_sub.groupby('Sub_Task').agg({'Start_Date': 'min', 'End_Date': 'max', 'Progress': 'mean'}).reset_index()
+                # 🎯 เรียงกลุ่มงานย่อยอีกครั้งเพื่อความชัวร์
+                df_grouped = df_grouped.sort_values(by='Start_Date', ascending=True)
+
                 for _, row in df_grouped.iterrows():
                     s, e = row['Start_Date'], row['End_Date'] + pd.Timedelta(days=1)
-                    plot_data.append({'Task': row['Sub_Task'], 'Start': s, 'End': e, 'Type': 'Planned_Sub', 'Label': ''})
-                    dur = (e - s) * (row['Progress'] / 100)
-                    plot_data.append({'Task': row['Sub_Task'], 'Start': s, 'End': s + dur, 'Type': 'Actual_Sub', 'Label': f"{int(row['Progress'])}%"})
+                    # แถบหลัง (Planned)
+                    plot_data.append({'Task': row['Sub_Task'], 'Start': s, 'End': e, 'Type': 'Planned_Sub', 'Label': '', 'Sort_Key': row['Start_Date']})
+                    # แถบหน้า (Actual)
+                    progress_dur = (e - s) * (row['Progress'] / 100)
+                    plot_data.append({'Task': row['Sub_Task'], 'Start': s, 'End': s + progress_dur, 'Type': 'Actual_Sub', 'Label': f"{int(row['Progress'])}%", 'Sort_Key': row['Start_Date']})
 
                 df_p = pd.DataFrame(plot_data)
-                fig = px.timeline(df_p, x_start="Start", x_end="End", y="Task", color="Type", text="Label", height=300,
-                                 color_discrete_map={"Planned": "#E5E7E9", "Actual": "#EC0C0C", "Planned_Sub": "#EBF5FB", "Actual_Sub": "#53D841"})
+                
+                # วาดกราฟ
+                fig = px.timeline(df_p, x_start="Start", x_end="End", y="Task", color="Type", text="Label", height=500,
+                                 color_discrete_map={"Planned": "#E5E7E9", "Actual": "#2C3E50", "Planned_Sub": "#EBF5FB", "Actual_Sub": "#3498DB"})
+                
+                # 🎯 สั่งให้แกน Y เรียงตามลำดับข้อมูลที่เรา Sort มาแล้ว (โดยปิดการจัดหมวดหมู่อัตโนมัติของ Plotly)
+                fig.update_yaxes(categoryorder="array", categoryarray=df_p['Task'].unique()[::-1]) # [::-1] เพราะ plotly วาดจากล่างขึ้นบน
+                
                 fig.update_traces(patch={"width": 0.7}, selector={"name": "Planned"})
                 fig.update_traces(patch={"width": 0.7}, selector={"name": "Actual"})
                 fig.update_traces(patch={"width": 0.35}, selector={"name": "Planned_Sub"})
                 fig.update_traces(patch={"width": 0.35}, selector={"name": "Actual_Sub"})
-                fig.update_yaxes(autorange="reversed")
+                
                 fig.add_vline(x=datetime.now().timestamp()*1000, line_dash="dot", line_color="red")
                 st.plotly_chart(fig, use_container_width=True)
 
