@@ -210,8 +210,8 @@ with tabs[1]: # แผนผัง (Summary + Sub-tasks)
                 }])
 
                 df_plot = pd.concat([summary_row, df_sub], ignore_index=True)
-                fig = px.timeline(df_plot, x_start="Start", x_end="End_V", y="Sub_Task", color="Type", text="Progress", height=450,
-                                 color_discrete_map={"🏢 โปรเจกต์หลัก": "#333333", "📌 งานย่อย": "#636EFA"})
+                fig = px.timeline(df_plot, x_start="Start", x_end="End_V", y="Sub_Task", color="Type", text="Progress", height=250,
+                                 color_discrete_map={"🏢 โปรเจกต์หลัก": "#F02323", "📌 งานย่อย": "#0BE99F"})
                 fig.update_yaxes(autorange="reversed", title="")
                 fig.add_vline(x=datetime.now().timestamp()*1000, line_dash="dot", line_color="red")
                 st.plotly_chart(fig, use_container_width=True)
