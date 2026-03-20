@@ -91,7 +91,7 @@ def save_data(df_to_save):
 # ==========================================
 # 4. DIALOGS
 # ==========================================
-@st.dialog("👤 รายละเอียดทีมงาน")
+@st.dialog("👤 รายละเอียดผู้รับผิดชอบ")
 def show_task_info(task_name, project_name):
     df = st.session_state['data']
     team = df[(df['Main_Task'] == project_name) & (df['Sub_Task'] == task_name)]
@@ -106,7 +106,7 @@ def show_task_info(task_name, project_name):
             c2.caption(f"ความคืบหน้า: {int(row['Progress'])}%")
             if row['Issue']: st.info(f"📝 {row['Issue']}")
 
-@st.dialog("📝 อัปเดตงานยกทีม (Sync)")
+@st.dialog("📝 อัปเดตงานยกทีม (Group Sync)")
 def update_task_dialog(index, row_data):
     df = st.session_state['data']
     task_name, project_name = row_data['Sub_Task'], row_data['Main_Task']
@@ -114,7 +114,7 @@ def update_task_dialog(index, row_data):
     
     st.markdown(f"📁 **โปรเจกต์:** {project_name}  \n📌 **งาน:** {task_name}  \n👥 **ทีมงาน:** {', '.join(team)}")
     new_prog = st.slider("ความคืบหน้า (%)", 0, 100, int(row_data['Progress']))
-    new_issue = st.text_area("บันทึกเพิ่มเติม (Issue)", value=str(row_data['Issue']))
+    new_issue = st.text_area("บันทึกเพิ่มเติม", value=str(row_data['Issue']))
     sync_all = st.checkbox("🔄 อัปเดตให้ทุกคนพร้อมกัน", value=True)
     
     c1, c2 = st.columns(2)
@@ -189,7 +189,7 @@ with tabs[0]: # ลงทะเบียน
                 st.session_state['data'] = updated
                 st.toast(f"✅ เพิ่มงาน '{sub}' สำเร็จ"); st.rerun()
 
-with tabs[1]: # แผนผัง (ตัวเลขใหญ่พิเศษ)
+with tabs[1]: # แผนผัง (เรียงจากบนลงล่าง)
     df_all = st.session_state['data']
     if not df_all.empty and st.session_state['projects']:
         sel_p = st.selectbox("📂 ดูภาพรวม:", st.session_state['projects'], key="dash_p_sel")
@@ -201,30 +201,40 @@ with tabs[1]: # แผนผัง (ตัวเลขใหญ่พิเศ�
             actual_pct = df_all[df_all['Main_Task'] == sel_p]['Progress'].mean()
             st.metric(f"Progress รวม: {sel_p}", f"{actual_pct:.1f}%")
 
-            # Sorting & Overlay
+            # Sorting & Overlay Logic
             df_sub = df_all[(df_all['Main_Task'] == sel_p) & (df_all['Employee'].isin(sel_emps_filter))].copy()
             if not df_sub.empty:
                 df_sub = df_sub.sort_values(by='Start_Date', ascending=True)
                 plot_data = []
-                # Baseline
-                plot_data.append({'Task': f"🏢 {sel_p}", 'Start': p_s, 'End': p_e, 'Type': 'Planned', 'Label': ''})
+                
+                # Baseline โปรเจกต์หลัก (ตั้งให้ Sort_Key ต่ำสุดเพื่อให้โผล่บนสุด)
+                plot_data.append({'Task': f"🏢 {sel_p}", 'Start': p_s, 'End': p_e, 'Type': 'Planned', 'Label': '', 'Sort_Key': pd.Timestamp.min})
                 p_actual_end = p_s + ((p_e - p_s) * (actual_pct / 100))
-                plot_data.append({'Task': f"🏢 {sel_p}", 'Start': p_s, 'End': p_actual_end, 'Type': 'Actual', 'Label': f"{int(actual_pct)}%"})
+                plot_data.append({'Task': f"🏢 {sel_p}", 'Start': p_s, 'End': p_actual_end, 'Type': 'Actual', 'Label': f"{int(actual_pct)}%", 'Sort_Key': pd.Timestamp.min})
 
-                # งานย่อย
+                # งานย่อย (เรียงตาม Start_Date)
                 df_grouped = df_sub.groupby('Sub_Task').agg({'Start_Date': 'min', 'End_Date': 'max', 'Progress': 'mean'}).reset_index().sort_values(by='Start_Date')
                 for _, row in df_grouped.iterrows():
                     s, e = row['Start_Date'], row['End_Date'] + pd.Timedelta(days=1)
-                    plot_data.append({'Task': row['Sub_Task'], 'Start': s, 'End': e, 'Type': 'Planned_Sub', 'Label': ''})
+                    plot_data.append({'Task': row['Sub_Task'], 'Start': s, 'End': e, 'Type': 'Planned_Sub', 'Label': '', 'Sort_Key': row['Start_Date']})
                     dur = (e - s) * (row['Progress'] / 100)
-                    plot_data.append({'Task': row['Sub_Task'], 'Start': s, 'End': s + dur, 'Type': 'Actual_Sub', 'Label': f"{int(row['Progress'])}%"})
+                    plot_data.append({'Task': row['Sub_Task'], 'Start': s, 'End': s + dur, 'Type': 'Actual_Sub', 'Label': f"{int(row['Progress'])}%", 'Sort_Key': row['Start_Date']})
 
                 df_p = pd.DataFrame(plot_data)
-                fig = px.timeline(df_p, x_start="Start", x_end="End", y="Task", color="Type", text="Label", height=500,
-                                 color_discrete_map={"Planned": "#E5E7E9", "Actual": "#2C3E50", "Planned_Sub": "#EBF5FB", "Actual_Sub": "#3498DB"})
                 
-                # 🔥 ปรับตัวเลข % ให้ใหญ่และหนา (Font Size 18)
-                fig.update_traces(textfont=dict(size=18, color="white", family="Arial Black"), textposition='inside')
+                fig = px.timeline(df_p, x_start="Start", x_end="End", y="Task", color="Type", text="Label", height=500,
+                                 color_discrete_map={"Planned": "#E5E7E9", "Actual": "#FC0B0B", "Planned_Sub": "#EBF5FB", "Actual_Sub": "#09F31D"})
+                
+                # 🔥 ปรับตัวเลข % ให้ใหญ่สะใจ
+                fig.update_traces(textfont=dict(size=12, color="white", family="Arial Black"), textposition='inside')
+                
+                # 🔥 แก้ปัญหาเรียงจากล่างขึ้นบน: บังคับลำดับ Array ของแกน Y ใหม่
+                fig.update_yaxes(
+                    categoryorder="array", 
+                    categoryarray=df_p['Task'].unique()[::-1], 
+                    autorange="reversed", 
+                    title=""
+                )
                 
                 # ปรับความหนา (300 vs 150)
                 fig.update_traces(patch={"width": 0.75}, selector={"name": "Planned"})
@@ -232,19 +242,18 @@ with tabs[1]: # แผนผัง (ตัวเลขใหญ่พิเศ�
                 fig.update_traces(patch={"width": 0.4}, selector={"name": "Planned_Sub"})
                 fig.update_traces(patch={"width": 0.4}, selector={"name": "Actual_Sub"})
                 
-                fig.update_yaxes(categoryorder="array", categoryarray=df_p['Task'].unique()[::-1], autorange="reversed", title="")
                 fig.add_vline(x=datetime.now().timestamp()*1000, line_dash="dot", line_color="red")
                 st.plotly_chart(fig, use_container_width=True)
 
                 st.markdown("---")
-                st.markdown("🔍 **ติ๊กเลือกงานเพื่อดูคนรับผิดชอบ**")
+                st.markdown("🔍 **เลือกงานเพื่อดูคนรับผิดชอบ**")
                 task_list = df_grouped[['Sub_Task', 'Progress']]
                 ev = st.dataframe(task_list, use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single-row")
                 if ev.selection.rows:
                     show_task_info(task_list.iloc[ev.selection.rows[0]]['Sub_Task'], sel_p)
 
 with tabs[2]: # อัปเดต
-    st.subheader("🛠️ แก้ไขงานย่อยยกทีม")
+    st.subheader("🛠️ คลิกเลือกงานจากตารางเพื่ออัปเดต")
     df_u = st.session_state['data'].copy()
     if not df_u.empty:
         ev2 = st.dataframe(df_u[['Sub_Task', 'Main_Task', 'Employee', 'Progress', 'Issue']], use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single-row")
