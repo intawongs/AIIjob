@@ -203,6 +203,7 @@ with tabs[1]: # แผนผัง (Summary + Sub-tasks)
             if not df_sub.empty:
                 df_sub['Start'], df_sub['End_V'] = df_sub['Start_Date'], df_sub['End_Date'] + pd.Timedelta(days=1)
                 df_sub['Type'] = "📌 งานย่อย"
+                df_sub['Prog_Label'] = df_sub['Progress'].astype(int).astype(str) + "%"
 
                 summary_row = pd.DataFrame([{
                     'Sub_Task': f"🎯 ภาพรวม: {sel_p}", 'Employee': 'OVERALL', 
