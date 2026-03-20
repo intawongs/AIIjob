@@ -229,8 +229,8 @@ with tabs[1]: # แผนผัง (Double Layer Gantt + Sorting)
                 df_p = pd.DataFrame(plot_data)
                 
                 # วาดกราฟ
-                fig = px.timeline(df_p, x_start="Start", x_end="End", y="Task", color="Type", text="Label", height=500,
-                                 color_discrete_map={"Planned": "#E5E7E9", "Actual": "#2C3E50", "Planned_Sub": "#EBF5FB", "Actual_Sub": "#3498DB"})
+                fig = px.timeline(df_p, x_start="Start", x_end="End", y="Task", color="Type", text="Label", height=250,
+                                 color_discrete_map={"Planned": "#E5E7E9", "Actual": "#F04014", "Planned_Sub": "#EBF5FB", "Actual_Sub": "#3BE411"})
                 
                 # 🎯 สั่งให้แกน Y เรียงตามลำดับข้อมูลที่เรา Sort มาแล้ว (โดยปิดการจัดหมวดหมู่อัตโนมัติของ Plotly)
                 fig.update_yaxes(categoryorder="array", categoryarray=df_p['Task'].unique()[::-1]) # [::-1] เพราะ plotly วาดจากล่างขึ้นบน
