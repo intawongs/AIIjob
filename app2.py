@@ -221,7 +221,7 @@ with tabs[1]:
                 plot_data.append({'Task': st_lab, 'Start': ss, 'End': s_act_end, 'Type': 'S_Act', 'Label': f"{int(srow['Progress'])}%"})
 
         df_p = pd.DataFrame(plot_data)
-        fig = px.timeline(df_p, x_start="Start", x_end="End", y="Task", color="Type", text="Label", height=600,
+        fig = px.timeline(df_p, x_start="Start", x_end="End", y="Task", color="Type", text="Label", height=300,
                          color_discrete_map={
                              "P_Plan": "#E5E7E9", "P_Act": "#2C3E50", 
                              "M_Plan": "#D6EAF8", "M_Act": "#2E86C1", 
