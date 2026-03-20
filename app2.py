@@ -238,10 +238,10 @@ with tabs[1]: # แผนผัง (เรียงจากบนลงล่�
                 )
                 
                 fig.update_traces(textfont=dict(size=12, color="white", family="Arial Black"), textposition='inside')
-                fig.update_traces(patch={"width": 0.75}, selector={"name": "Planned"})
-                fig.update_traces(patch={"width": 0.75}, selector={"name": "Actual"})
-                fig.update_traces(patch={"width": 0.75}, selector={"name": "Planned_Sub"})
-                fig.update_traces(patch={"width": 0.75}, selector={"name": "Actual_Sub"})
+                fig.update_traces(patch={"width": 0.85}, selector={"name": "Planned"})
+                fig.update_traces(patch={"width": 0.85}, selector={"name": "Actual"})
+                fig.update_traces(patch={"width": 0.85}, selector={"name": "Planned_Sub"})
+                fig.update_traces(patch={"width": 0.85}, selector={"name": "Actual_Sub"})
                 
                 fig.add_vline(x=datetime.now().timestamp()*1000, line_dash="dot", line_color="red")
                 st.plotly_chart(fig, use_container_width=True)
