@@ -229,7 +229,7 @@ with tabs[1]: # แผนผัง (Double Layer Gantt + Sorting)
                 df_p = pd.DataFrame(plot_data)
                 
                 # วาดกราฟ
-                fig = px.timeline(df_p, x_start="Start", x_end="End", y="Task", color="Type", text="Label", height=250,
+                fig = px.timeline(df_p, x_start="Start", x_end="End", y="Task", color="Type", text="Label", height=300,
                                  color_discrete_map={"Planned": "#E5E7E9", "Actual": "#F04014", "Planned_Sub": "#EBF5FB", "Actual_Sub": "#3BE411"})
                 
                 # 🎯 สั่งให้แกน Y เรียงตามลำดับข้อมูลที่เรา Sort มาแล้ว (โดยปิดการจัดหมวดหมู่อัตโนมัติของ Plotly)
