@@ -175,7 +175,7 @@ with tabs[1]:
     df_all = st.session_state.get('data', pd.DataFrame())
     if not df_all.empty:
         available_p = df_all['Project'].unique().tolist()
-        sel_p = st.selectbox("📂 ดูแผนผังรายโปรเจกต์:", available_p, key="p_gantt_final")
+        sel_p = st.selectbox("📂 ดูแผนผังรายโปรเจกต์:", available_p, key="p_gantt_v4_final")
         
         df_proj = df_all[df_all['Project'] == sel_p].copy()
         
@@ -194,68 +194,65 @@ with tabs[1]:
 
         plot_data = []
         
-        # 1. ระดับ PROJECT (หนาสุด 0.8) - ใช้สีเทาเข้ม/ดำ
-        plot_data.append({'Task': f"🏢 {sel_p}", 'Start': p_s, 'End': p_e, 'Type': 'P_Plan', 'Label': '', 'Width': 0.8, 'Color': '#E5E7E9'})
+        # 1. ระดับ PROJECT (หนาสุด 0.8)
+        plot_data.append({'Task': f"🏢 {sel_p}", 'Start': p_s, 'End': p_e, 'Type': 'P_Plan', 'Label': '', 'Width': 0.8, 'Color': '#E5E7E9', 'Pos': 'inside'})
         p_act_e = p_s + ((p_e - p_s) * (p_pct / 100))
-        plot_data.append({'Task': f"🏢 {sel_p}", 'Start': p_s, 'End': p_act_e, 'Type': 'P_Act', 'Label': f"{int(p_pct)}%", 'Width': 0.8, 'Color': '#2C3E50'})
+        plot_data.append({'Task': f"🏢 {sel_p}", 'Start': p_s, 'End': p_act_e, 'Type': 'P_Act', 'Label': f"{int(p_pct)}%", 'Width': 0.8, 'Color': '#2C3E50', 'Pos': 'inside'})
 
-        # 2. ระดับ MAIN TASK & SUB TASK (แยกสีตามกลุ่ม)
+        # 2. ระดับ MAIN TASK & SUB TASK (แยกสีกลุ่ม + ตัวเลขนอกแท่ง)
         main_tasks = df_proj['Main_Task'].unique()
-        # ใช้ Palette สีสดใสแยกกลุ่ม
-        colors = px.colors.qualitative.Safe 
+        colors = px.colors.qualitative.Bold # ใช้สีที่เข้มขึ้นเพื่อให้ตัดกับพื้นหลัง
         
         for idx, mt in enumerate(main_tasks):
             df_mt_group = df_proj[df_proj['Main_Task'] == mt]
             mt_s = df_mt_group['Start_Date'].min()
             mt_e = df_mt_group['End_Date'].max() + pd.Timedelta(days=1)
             mt_pct = df_mt_group['Progress'].mean()
-            
-            group_color = colors[idx % len(colors)] # สีหลักของกลุ่มนี้
-            light_color = "#F4F6F7" # สีจางสำหรับพื้นหลังเงา (หรือจะใช้สีกลุ่มแบบจางก็ได้)
+            group_color = colors[idx % len(colors)]
             
             # --- Main Task Layer (หนากลาง 0.5) ---
             mt_label = f"📑 {mt}"
-            plot_data.append({'Task': mt_label, 'Start': mt_s, 'End': mt_e, 'Type': f'M_Plan_{idx}', 'Label': '', 'Width': 0.5, 'Color': '#EBEDEF'})
+            plot_data.append({'Task': mt_label, 'Start': mt_s, 'End': mt_e, 'Type': f'M_Plan_{idx}', 'Label': '', 'Width': 0.5, 'Color': '#F2F3F4', 'Pos': 'outside'})
             m_act_e = mt_s + ((mt_e - mt_s) * (mt_pct / 100))
-            plot_data.append({'Task': mt_label, 'Start': mt_s, 'End': m_act_e, 'Type': f'M_Act_{idx}', 'Label': f"{int(mt_pct)}%", 'Width': 0.5, 'Color': group_color})
+            plot_data.append({'Task': mt_label, 'Start': mt_s, 'End': m_act_e, 'Type': f'M_Act_{idx}', 'Label': f"{int(mt_pct)}%", 'Width': 0.5, 'Color': group_color, 'Pos': 'outside'})
             
             # --- Sub-tasks Layer (บาง 0.25) ---
             df_stk = df_mt_group.groupby('Sub_Task').agg({'Start_Date': 'min', 'End_Date': 'max', 'Progress': 'mean'}).reset_index()
             for s_idx, srow in df_stk.iterrows():
-                ss = srow['Start_Date']
-                se = srow['End_Date'] + pd.Timedelta(days=1)
+                ss, se = srow['Start_Date'], srow['End_Date'] + pd.Timedelta(days=1)
                 st_pct = srow['Progress']
-                
-                # เพิ่ม Indent ให้ดูง่ายว่าใครเป็นลูกใคร
                 st_label = f"&nbsp;&nbsp;&nbsp;&nbsp;└ {srow['Sub_Task']}"
                 
-                # แถบเงาหลัง (Planned 100%)
-                plot_data.append({'Task': st_label, 'Start': ss, 'End': se, 'Type': f'S_Plan_{idx}_{s_idx}', 'Label': '', 'Width': 0.25, 'Color': '#FBFCFC'})
-                # แถบสีหน้า (Actual Progress)
+                plot_data.append({'Task': st_label, 'Start': ss, 'End': se, 'Type': f'S_Plan_{idx}_{s_idx}', 'Label': '', 'Width': 0.25, 'Color': '#FBFCFC', 'Pos': 'outside'})
                 s_act_e = ss + ((se - ss) * (st_pct / 100))
-                plot_data.append({'Task': st_label, 'Start': ss, 'End': s_act_e, 'Type': f'S_Act_{idx}_{s_idx}', 'Label': f"{int(st_pct)}%", 'Width': 0.25, 'Color': group_color})
+                plot_data.append({'Task': st_label, 'Start': ss, 'End': s_act_e, 'Type': f'S_Act_{idx}_{s_idx}', 'Label': f"{int(st_pct)}%", 'Width': 0.25, 'Color': group_color, 'Pos': 'outside'})
 
         df_p = pd.DataFrame(plot_data)
         
-        # วาดกราฟ
-        fig = px.timeline(
-            df_p, x_start="Start", x_end="End", y="Task", 
-            color="Type", 
-            text="Label",
-            height=len(df_p) * 25 + 150 # ปรับความสูงอัตโนมัติ
-        )
+        fig = px.timeline(df_p, x_start="Start", x_end="End", y="Task", color="Type", text="Label", height=len(df_p)*30 + 150)
 
-        # 🔥 เทคนิคคุมสีแบบเป๊ะๆ รายแท่ง
+        # 🔥 เทคนิคการวนลูปเพื่อตั้งค่า Position รายตัว
         for i, row in df_p.iterrows():
+            text_color = "white" if row['Pos'] == 'inside' else "black"
             fig.update_traces(
                 marker_color=row['Color'], 
                 selector={'name': row['Type']},
-                patch={"width": row['Width']} # ปรับความหนาตามที่ตั้งไว้
+                patch={
+                    "width": row['Width'], 
+                    "textposition": row['Pos'], # ดึงค่า inside/outside จาก DataFrame
+                    "textfont": {"size": 14, "family": "Arial Black", "color": text_color}
+                }
             )
 
         fig.update_yaxes(categoryorder="array", categoryarray=df_p['Task'].unique()[::-1], title="")
-        fig.update_layout(showlegend=False) 
-        fig.update_traces(textposition='inside', textfont=dict(size=12, family="Arial Black", color="white"))
+        fig.update_layout(
+            showlegend=False, 
+            margin=dict(r=100), # เผื่อที่ขวาให้ตัวหนังสือ Outside
+            xaxis_title="Timeline"
+        )
+        
+        # เพิ่มเส้นแนวตั้งบอก "วันนี้"
+        fig.add_vline(x=datetime.now().timestamp()*1000, line_dash="dot", line_color="red", annotation_text="Today")
         
         st.plotly_chart(fig, use_container_width=True)
 
