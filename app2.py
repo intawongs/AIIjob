@@ -227,8 +227,8 @@ with tabs[1]: # แผนผัง (เรียงจากบนลงล่�
                 # เราต้องการ [Main_Task, Sub_Task_1, Sub_Task_2, ...]
                 order = [main_task_label] + df_grouped['Sub_Task'].tolist()
                 
-                fig = px.timeline(df_p, x_start="Start", x_end="End", y="Task", color="Type", text="Label", height=500,
-                                 color_discrete_map={"Planned": "#E5E7E9", "Actual": "#087FF7", "Planned_Sub": "#EBF5FB", "Actual_Sub": "#0CE2F1"})
+                fig = px.timeline(df_p, x_start="Start", x_end="End", y="Task", color="Type", text="Label", height=300,
+                                 color_discrete_map={"Planned": "#E5E7E9", "Actual": "#087FF7", "Planned_Sub": "#EBF5FB", "Actual_Sub": "#1F969E"})
                 
                 # 🔥 3. บังคับลำดับแกน Y (Plotly จะวาดจากล่างขึ้นบน เราเลยต้อง Reverse List)
                 fig.update_yaxes(
