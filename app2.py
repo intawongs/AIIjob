@@ -18,6 +18,9 @@ st.markdown("""
 
 st.title("🌌 Project Tracker (AII)")
 
+# ค่าคงที่
+THAI_MONTHS = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"]
+
 # ==========================================
 # 2. CONNECT GOOGLE SHEETS
 # ==========================================
@@ -36,7 +39,7 @@ def connect_gsheet():
         return None
 
 # ==========================================
-# 3. DATABASE LOGIC (Load & Save)
+# 3. DATABASE LOGIC
 # ==========================================
 def load_data():
     expected_logs = ['Employee', 'Main_Task', 'Sub_Task', 'Start_Date', 'End_Date', 'Output', 'Issue', 'Dependency', 'Progress', 'Score', 'Status']
@@ -51,21 +54,21 @@ def load_data():
             df_projs = pd.DataFrame(ws_projs.get_all_records())
             df_emps = pd.DataFrame(ws_emps.get_all_records())
 
-            if df_logs.empty: df_logs = pd.DataFrame(columns=expected_logs)
+            if df_logs.empty: 
+                df_logs = pd.DataFrame(columns=expected_logs)
             else:
-                for col in expected_logs:
+                for col in expected_cols: # check columns exist
                     if col not in df_logs.columns: df_logs[col] = None
             
-            # จัดการวันที่
+            # บังคับ format วันที่
             if not df_logs.empty:
-                for col in ['Start_Date', 'End_Date']:
-                    df_logs[col] = pd.to_datetime(df_logs[col], errors='coerce').dt.date
+                df_logs['Start_Date'] = pd.to_datetime(df_logs['Start_Date'], errors='coerce')
+                df_logs['End_Date'] = pd.to_datetime(df_logs['End_Date'], errors='coerce')
                 df_logs['Progress'] = pd.to_numeric(df_logs['Progress'], errors='coerce').fillna(0)
 
-            # อัปเดต Session State
             st.session_state['projects_master'] = df_projs
             st.session_state['employees'] = df_emps['Name'].tolist() if not df_emps.empty else []
-            st.session_state['projects'] = df_projs['Project'].dropna().tolist() if not df_projs.empty and 'Project' in df_projs.columns else []
+            st.session_state['projects'] = df_projs['Project'].dropna().tolist() if not df_projs.empty else []
 
             return df_logs, st.session_state['employees'], st.session_state['projects']
         except Exception as e:
@@ -78,8 +81,9 @@ def save_data(df_to_save):
         try:
             ws_logs = sh.worksheet('Logs')
             save_df = df_to_save.copy().fillna("")
-            save_df['Start_Date'] = save_df['Start_Date'].apply(lambda x: x.strftime('%Y-%m-%d') if isinstance(x, (date, datetime)) else str(x))
-            save_df['End_Date'] = save_df['End_Date'].apply(lambda x: x.strftime('%Y-%m-%d') if isinstance(x, (date, datetime)) else str(x))
+            save_df['Start_Date'] = save_df['Start_Date'].dt.strftime('%Y-%m-%d')
+            save_df['End_Date'] = save_df['End_Date'].dt.strftime('%Y-%m-%d')
+            
             cols = ['Employee', 'Main_Task', 'Sub_Task', 'Start_Date', 'End_Date', 'Output', 'Issue', 'Dependency', 'Progress', 'Score', 'Status']
             ws_logs.clear()
             ws_logs.update(range_name="A1", values=[cols] + save_df[cols].values.tolist())
@@ -123,14 +127,11 @@ with st.sidebar:
 # ==========================================
 # 7. MAIN UI
 # ==========================================
-tab1, tab2, tab3 = st.tabs(["📝 ลงทะเบียน", "📊 แผนผัง & Dashboard", "🛠️ อัปเดต"])
+tabs = st.tabs(["📝 ลงทะเบียน", "📊 แผนผัง & Dashboard", "🛠️ อัพเดต", "🏆 ผลงาน", "📑 รายงาน"])
 
-with tab1: # ลงทะเบียนงานย่อย
-    # ดึงรายชื่อโปรเจกต์
-    p_opt = st.session_state['projects']
-    
-    with st.form("sub_task_form", clear_on_submit=True): # ใช้ Form เพื่อให้ล้างค่าได้ง่าย
-        p = st.selectbox("เลือกโปรเจกต์", p_opt if p_opt else ["-- ไม่มีข้อมูล --"])
+with tabs[0]: # ลงทะเบียน
+    with st.form("sub_task_form", clear_on_submit=True):
+        p = st.selectbox("เลือกโปรเจกต์", st.session_state['projects'] if st.session_state['projects'] else ["-- ไม่มีข้อมูล --"])
         sub = st.text_input("ชื่องานย่อย")
         emps_multi = st.multiselect("ผู้รับผิดชอบ", st.session_state['employees'])
         c1, c2 = st.columns(2)
@@ -141,43 +142,81 @@ with tab1: # ลงทะเบียนงานย่อย
         
         if submitted:
             if sub and emps_multi and p != "-- ไม่มีข้อมูล --":
-                # เตรียมข้อมูลใหม่
-                new_rows = []
+                latest_logs, _, _ = load_data()
+                new_data = []
                 for e in emps_multi:
-                    new_rows.append({
+                    new_data.append({
                         'Employee': e, 'Main_Task': p, 'Sub_Task': sub, 
-                        'Start_Date': d_start, 'End_Date': d_end, 
+                        'Start_Date': pd.to_datetime(d_start), 
+                        'End_Date': pd.to_datetime(d_end), 
                         'Progress': 0, 'Status': '⏳ กำลังดำเนินการ'
                     })
-                
-                # โหลดข้อมูลล่าสุดมาต่อท้ายเพื่อป้องกันข้อมูลหาย
-                latest_logs, _, _ = load_data()
-                updated_df = pd.concat([latest_logs, pd.DataFrame(new_rows)], ignore_index=True)
-                
-                # บันทึก
+                updated_df = pd.concat([latest_logs, pd.DataFrame(new_data)], ignore_index=True)
                 if save_data(updated_df):
                     st.session_state['data'] = updated_df
-                    st.toast(f"✅ บันทึกงาน '{sub}' เรียบร้อยแล้ว!", icon="💾")
-                    st.rerun() # รีเฟรชหน้าเพื่อล้างค่าและแสดงผลใหม่
-            else:
-                st.warning("⚠️ กรุณากรอกข้อมูลให้ครบถ้วน")
+                    st.toast(f"✅ บันทึกงาน '{sub}' เรียบร้อย!", icon="💾")
+                    st.rerun()
 
-with tab2: # แผนผัง & Dashboard
+with tabs[1]: # แผนผัง & Dashboard
     df_all = st.session_state['data']
     if not df_all.empty and st.session_state['projects']:
-        sel_p = st.selectbox("📂 ดูภาพรวมโปรเจกต์:", st.session_state['projects'])
+        sel_p = st.selectbox("📂 ดูโปรเจกต์:", st.session_state['projects'])
         
-        # กรองข้อมูลงานย่อย
-        df_plot = df_all[(df_all['Main_Task'] == sel_p) & (df_all['Employee'].isin(sel_emps_filter))].copy()
-        
-        if not df_plot.empty:
-            df_plot['S'], df_plot['E'] = pd.to_datetime(df_plot['Start_Date']), pd.to_datetime(df_plot['End_Date']) + pd.Timedelta(days=1)
-            fig = px.timeline(df_plot, x_start="S", x_end="E", y="Sub_Task", color="Employee", text="Progress")
-            fig.update_yaxes(autorange="reversed")
-            st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("📭 ยังไม่มีข้อมูลงานย่อย")
+        # 1. Dashboard Baseline
+        master = st.session_state.get('projects_master', pd.DataFrame())
+        if not master.empty and sel_p in master['Project'].values:
+            p_info = master[master['Project'] == sel_p].iloc[0]
+            p_s, p_e = pd.to_datetime(p_info['Start_Date']), pd.to_datetime(p_info['End_Date'])
+            today = pd.Timestamp(date.today())
+            
+            total_days = (p_e - p_s).days
+            passed = (today - p_s).days
+            planned_pct = max(0, min(100, (passed / total_days) * 100)) if total_days > 0 else 0
+            actual_pct = df_all[df_all['Main_Task'] == sel_p]['Progress'].mean()
+            
+            c1, c2, c3 = st.columns(3)
+            c1.metric("ทำจริง (Actual)", f"{actual_pct:.1f}%", f"{actual_pct-planned_pct:.1f}%")
+            c2.metric("แผนงาน (Planned)", f"{planned_pct:.1f}%")
+            c3.metric("วันคงเหลือ", f"{(p_e.date() - today.date()).days} วัน")
+            st.progress(actual_pct/100)
 
-with tab3: # อัปเดตงาน
-    st.write("เลือกงานจากตารางเพื่ออัปเดต")
-    st.dataframe(st.session_state['data'][['Sub_Task', 'Employee', 'Progress']], use_container_width=True)
+            # 2. Gantt Chart (Summary + Sub-tasks)
+            df_sub = df_all[(df_all['Main_Task'] == sel_p) & (df_all['Employee'].isin(sel_emps_filter))].copy()
+            df_sub['Start'], df_sub['End_V'] = df_sub['Start_Date'], df_sub['End_Date'] + pd.Timedelta(days=1)
+            df_sub['Type'] = "📌 งานย่อย"
+
+            summary_row = pd.DataFrame([{
+                'Sub_Task': f"🎯 ภาพรวม: {sel_p}", 'Employee': 'OVERALL', 
+                'Start': p_s, 'End_V': p_e + pd.Timedelta(days=1), 'Progress': actual_pct, 'Type': "🏢 โปรเจกต์หลัก"
+            }])
+
+            df_plot = pd.concat([summary_row, df_sub], ignore_index=True)
+            fig = px.timeline(df_plot, x_start="Start", x_end="End_V", y="Sub_Task", color="Type", text="Progress", height=450,
+                             color_discrete_map={"🏢 โปรเจกต์หลัก": "#333333", "📌 งานย่อย": "#636EFA"})
+            fig.update_yaxes(autorange="reversed")
+            fig.add_vline(x=datetime.now().timestamp()*1000, line_dash="dot", line_color="red")
+            st.plotly_chart(fig, use_container_width=True)
+
+with tabs[2]: # อัปเดต
+    st.subheader("🛠️ แก้ไขสถานะงานย่อย")
+    st.dataframe(st.session_state['data'][['Sub_Task', 'Employee', 'Progress', 'Main_Task']], use_container_width=True)
+
+with tabs[3]: # ผลงาน
+    st.subheader("🏆 อันดับความคืบหน้าพนักงาน")
+    df_perf = st.session_state['data']
+    if not df_perf.empty:
+        sum_df = df_perf.groupby('Employee').agg(Total=('Sub_Task','count'), Avg=('Progress','mean')).reset_index().sort_values('Avg', ascending=False)
+        for i, row in sum_df.iterrows():
+            with st.container(border=True):
+                c1, c2 = st.columns([1, 4])
+                c1.title("🥇" if i==0 else "🥈" if i==1 else "🥉" if i==2 else f"#{i+1}")
+                c2.metric(row['Employee'], f"{row['Avg']:.1f}%", f"จาก {row['Total']} งาน")
+
+with tabs[4]: # รายงาน
+    st.subheader("📑 สรุปรายงานรายโปรเจกต์")
+    df_rep = st.session_state['data']
+    if not df_rep.empty:
+        proj_group = df_rep.groupby('Main_Task').agg(Progress=('Progress', 'mean'), Tasks=('Sub_Task', 'count')).reset_index()
+        st.table(proj_group)
+        if st.button("📥 เตรียมส่งรายงาน"):
+            st.toast("เตรียมข้อมูลรายงานเรียบร้อย (ตัวอย่าง)")
