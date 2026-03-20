@@ -175,75 +175,87 @@ with tabs[1]:
     df_all = st.session_state.get('data', pd.DataFrame())
     if not df_all.empty:
         available_p = df_all['Project'].unique().tolist()
-        sel_p = st.selectbox("📂 ดูแผนผังรายโปรเจกต์:", available_p, key="p_gantt_v3")
+        sel_p = st.selectbox("📂 ดูแผนผังรายโปรเจกต์:", available_p, key="p_gantt_final")
         
         df_proj = df_all[df_all['Project'] == sel_p].copy()
         
-        # --- Logic จัดการ Baseline (เหมือนเดิม) ---
+        # --- Baseline Logic ---
         master = st.session_state.get('projects_master', pd.DataFrame())
         if not master.empty and sel_p in master['Project'].values:
             p_info = master[master['Project'] == sel_p].iloc[0]
-            p_s, p_e = pd.to_datetime(p_info['Start_Date']), pd.to_datetime(p_info['End_Date']) + pd.Timedelta(days=1)
+            p_s = pd.to_datetime(p_info['Start_Date'])
+            p_e = pd.to_datetime(p_info['End_Date']) + pd.Timedelta(days=1)
         else:
-            p_s, p_e = df_proj['Start_Date'].min(), df_proj['End_Date'].max() + pd.Timedelta(days=1)
+            p_s = df_proj['Start_Date'].min()
+            p_e = df_proj['End_Date'].max() + pd.Timedelta(days=1)
 
         p_pct = df_proj['Progress'].mean()
-        st.metric(f"📊 {sel_p}", f"{p_pct:.1f}%")
+        st.metric(f"📊 Overall: {sel_p}", f"{p_pct:.1f}%")
 
         plot_data = []
         
-        # 1. Project Layer (บนสุด)
-        plot_data.append({'Task': f"🏢 {sel_p}", 'Start': p_s, 'End': p_e, 'Color_Group': 'PROJECT', 'Width': 0.8, 'Label': f"TOTAL: {int(p_pct)}%"})
+        # 1. ระดับ PROJECT (หนาสุด 0.8) - ใช้สีเทาเข้ม/ดำ
+        plot_data.append({'Task': f"🏢 {sel_p}", 'Start': p_s, 'End': p_e, 'Type': 'P_Plan', 'Label': '', 'Width': 0.8, 'Color': '#E5E7E9'})
+        p_act_e = p_s + ((p_e - p_s) * (p_pct / 100))
+        plot_data.append({'Task': f"🏢 {sel_p}", 'Start': p_s, 'End': p_act_e, 'Type': 'P_Act', 'Label': f"{int(p_pct)}%", 'Width': 0.8, 'Color': '#2C3E50'})
 
-        # 2. Main Task & Sub Task (เรียงกลุ่ม)
-        # สร้าง Palette สีให้แต่ละ Main Task (เพื่อให้ Sub-task มีสีเดียวกับแม่)
+        # 2. ระดับ MAIN TASK & SUB TASK (แยกสีตามกลุ่ม)
         main_tasks = df_proj['Main_Task'].unique()
+        # ใช้ Palette สีสดใสแยกกลุ่ม
+        colors = px.colors.qualitative.Safe 
         
         for idx, mt in enumerate(main_tasks):
             df_mt_group = df_proj[df_proj['Main_Task'] == mt]
-            mt_s, mt_e = df_mt_group['Start_Date'].min(), df_mt_group['End_Date'].max() + pd.Timedelta(days=1)
+            mt_s = df_mt_group['Start_Date'].min()
+            mt_e = df_mt_group['End_Date'].max() + pd.Timedelta(days=1)
             mt_pct = df_mt_group['Progress'].mean()
             
-            group_key = f"GROUP_{idx}" # ใช้ ID กลุ่มในการคุมสี
+            group_color = colors[idx % len(colors)] # สีหลักของกลุ่มนี้
+            light_color = "#F4F6F7" # สีจางสำหรับพื้นหลังเงา (หรือจะใช้สีกลุ่มแบบจางก็ได้)
             
-            # เพิ่มแถว Main Task (หนาปานกลาง)
+            # --- Main Task Layer (หนากลาง 0.5) ---
             mt_label = f"📑 {mt}"
-            plot_data.append({'Task': mt_label, 'Start': mt_s, 'End': mt_e, 'Color_Group': group_key, 'Width': 0.5, 'Label': f"{int(mt_pct)}%"})
+            plot_data.append({'Task': mt_label, 'Start': mt_s, 'End': mt_e, 'Type': f'M_Plan_{idx}', 'Label': '', 'Width': 0.5, 'Color': '#EBEDEF'})
+            m_act_e = mt_s + ((mt_e - mt_s) * (mt_pct / 100))
+            plot_data.append({'Task': mt_label, 'Start': mt_s, 'End': m_act_e, 'Type': f'M_Act_{idx}', 'Label': f"{int(mt_pct)}%", 'Width': 0.5, 'Color': group_color})
             
-            # เพิ่ม Sub-tasks (บาง)
+            # --- Sub-tasks Layer (บาง 0.25) ---
             df_stk = df_mt_group.groupby('Sub_Task').agg({'Start_Date': 'min', 'End_Date': 'max', 'Progress': 'mean'}).reset_index()
-            for _, srow in df_stk.iterrows():
-                # เพิ่มช่องว่าง (Indent) หน้าชื่อให้เยอะขึ้น
-                st_label = f"&nbsp;&nbsp;&nbsp;&nbsp;└ {srow['Sub_Task']}" 
-                plot_data.append({
-                    'Task': st_label, 
-                    'Start': srow['Start_Date'], 
-                    'End': srow['End_Date'] + pd.Timedelta(days=1), 
-                    'Color_Group': group_key, # 🎨 ใช้สีกลุ่มเดียวกับ Main Task
-                    'Width': 0.25, 
-                    'Label': f"{int(srow['Progress'])}%"
-                })
+            for s_idx, srow in df_stk.iterrows():
+                ss = srow['Start_Date']
+                se = srow['End_Date'] + pd.Timedelta(days=1)
+                st_pct = srow['Progress']
+                
+                # เพิ่ม Indent ให้ดูง่ายว่าใครเป็นลูกใคร
+                st_label = f"&nbsp;&nbsp;&nbsp;&nbsp;└ {srow['Sub_Task']}"
+                
+                # แถบเงาหลัง (Planned 100%)
+                plot_data.append({'Task': st_label, 'Start': ss, 'End': se, 'Type': f'S_Plan_{idx}_{s_idx}', 'Label': '', 'Width': 0.25, 'Color': '#FBFCFC'})
+                # แถบสีหน้า (Actual Progress)
+                s_act_e = ss + ((se - ss) * (st_pct / 100))
+                plot_data.append({'Task': st_label, 'Start': ss, 'End': s_act_e, 'Type': f'S_Act_{idx}_{s_idx}', 'Label': f"{int(st_pct)}%", 'Width': 0.25, 'Color': group_color})
 
         df_p = pd.DataFrame(plot_data)
         
-        # วาดกราฟโดยแยกสีตาม Color_Group
+        # วาดกราฟ
         fig = px.timeline(
             df_p, x_start="Start", x_end="End", y="Task", 
-            color="Color_Group", # แยกสีตามกลุ่มงาน
-            text="Label", 
-            height=len(df_p) * 40 + 100, # ปรับความสูงตามจำนวนงาน
-            color_discrete_sequence=px.colors.qualitative.Pastel # ใช้โทนสีพาสเทลแยกง่าย
+            color="Type", 
+            text="Label",
+            height=len(df_p) * 25 + 150 # ปรับความสูงอัตโนมัติ
         )
 
-        fig.update_yaxes(categoryorder="array", categoryarray=df_p['Task'].unique()[::-1], title="")
-        
-        # ปรับความหนาแบบ Dynamic ตามที่ตั้งไว้ใน df_p
-        for i, task in enumerate(df_p['Task'].unique()):
-            w = df_p[df_p['Task'] == task]['Width'].iloc[0]
-            fig.update_traces(patch={"width": w}, selector={"name": df_p[df_p['Task'] == task]['Color_Group'].iloc[0]})
+        # 🔥 เทคนิคคุมสีแบบเป๊ะๆ รายแท่ง
+        for i, row in df_p.iterrows():
+            fig.update_traces(
+                marker_color=row['Color'], 
+                selector={'name': row['Type']},
+                patch={"width": row['Width']} # ปรับความหนาตามที่ตั้งไว้
+            )
 
-        fig.update_layout(showlegend=False) # ซ่อน Legend เพื่อลดความรก
-        fig.update_traces(textfont=dict(size=12, family="Arial Black"))
+        fig.update_yaxes(categoryorder="array", categoryarray=df_p['Task'].unique()[::-1], title="")
+        fig.update_layout(showlegend=False) 
+        fig.update_traces(textposition='inside', textfont=dict(size=12, family="Arial Black", color="white"))
         
         st.plotly_chart(fig, use_container_width=True)
 
