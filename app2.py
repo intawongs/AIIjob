@@ -338,15 +338,54 @@ with st.sidebar:
             
     # ตัวอย่างส่วนเพิ่มโปรเจกต์ใน Sidebar
     with st.expander("📂 จัดการโปรเจกต์ (กำหนดกรอบเวลา)"):
-        new_p_name = st.text_input("ชื่อโปรเจกต์ใหม่")
+        new_p_name = st.text_input("ชื่อโปรเจกต์ใหม่", key="input_project_name")
         c1, c2 = st.columns(2)
-        p_start = c1.date_input("วันที่เริ่มโปรเจกต์")
-        p_end = c2.date_input("วันที่จบโปรเจกต์")
+        p_start = c1.date_input("วันที่เริ่มโปรเจกต์", value=datetime.now())
+        p_end = c2.date_input("วันที่จบโปรเจกต์", value=datetime.now() + timedelta(days=30))
         
-        if st.button("➕ เพิ่มโปรเจกต์หลัก"):
-            # Logic บันทึกลง Sheet Projects (เพิ่ม Column Start/End ใน Sheet ด้วยนะครับ)
-            # ... (Code บันทึก) ...
-            st.success(f"บันทึกกรอบเวลาของ {new_p_name} เรียบร้อย!")
+        if st.button("➕ เพิ่มโปรเจกต์หลัก", use_container_width=True):
+            if new_p_name.strip() == "":
+                st.error("❌ กรุณาระบุชื่อโปรเจกต์")
+            else:
+                try:
+                    sh = connect_gsheet()
+                    if sh:
+                        ws_projs = sh.worksheet('Projects')
+                        
+                        # 1. ดึงข้อมูลเดิมที่มีอยู่ใน Sheet 'Projects' มาก่อน
+                        # เพื่อป้องกันการเขียนทับแล้วข้อมูลเก่าหาย
+                        existing_projs = ws_projs.get_all_records()
+                        df_existing = pd.DataFrame(existing_projs)
+                        
+                        # 2. ตรวจสอบว่าชื่อโปรเจกต์ซ้ำไหม
+                        if not df_existing.empty and new_p_name in df_existing['Project'].values:
+                            st.warning(f"⚠️ โปรเจกต์ '{new_p_name}' มีอยู่แล้วในระบบ")
+                        else:
+                            # 3. เตรียมข้อมูลแถวใหม่
+                            # Format: [Project Name, Start Date, End Date]
+                            new_row = [
+                                new_p_name, 
+                                p_start.strftime('%Y-%m-%d'), 
+                                p_end.strftime('%Y-%m-%d')
+                            ]
+                            
+                            # 4. ใช้ append_row เพื่อ "ต่อท้าย" ข้อมูลเดิม (ปลอดภัยที่สุด)
+                            ws_projs.append_row(new_row)
+                            
+                            # 5. อัปเดตข้อมูลใน Session State ของเราด้วย เพื่อให้ Dropdown อัปเดตทันที
+                            if 'projects' not in st.session_state:
+                                st.session_state['projects'] = []
+                            
+                            if new_p_name not in st.session_state['projects']:
+                                st.session_state['projects'].append(new_p_name)
+                            
+                            st.success(f"✅ บันทึกกรอบเวลาของ {new_p_name} เรียบร้อย!")
+                            
+                            # หน่วงเวลาเล็กน้อยแล้ว rerun เพื่อรีเฟรช Dropdown ทั้งแอป
+                            st.rerun()
+                            
+                except Exception as e:
+                    st.error(f"❌ เกิดข้อผิดพลาดในการบันทึก: {e}")
 
 # --- MAIN TABS ---
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📝 ลงทะเบียน", "📊 แผนผัง", "🛠️ อัพเดต", "🏆 ผลงาน", "📑 รายงาน", "📖 คู่มือ"])
