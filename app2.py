@@ -171,45 +171,74 @@ with tabs[0]:
                     st.toast("✅ บันทึกสำเร็จ"); st.rerun()
 
 # --- TAB 1: แผนผังงาน (Gantt 3 Levels) ---
+# --- TAB 1: แผนผังงาน (Gantt 3 Levels - Robust Version) ---
 with tabs[1]:
-    df_all = st.session_state['data']
-    if not df_all.empty and st.session_state['projects_list']:
-        sel_p = st.selectbox("📂 ดูแผนผังรายโปรเจกต์:", st.session_state['projects_list'], key="p_gantt")
-        master = st.session_state['projects_master']
+    df_all = st.session_state.get('data', pd.DataFrame())
+    if not df_all.empty:
+        # ดึงรายชื่อ Project ที่มีอยู่จริงใน Logs มาให้เลือก
+        available_p = df_all['Project'].unique().tolist()
+        sel_p = st.selectbox("📂 ดูแผนผังรายโปรเจกต์:", available_p, key="p_gantt_robust")
         
-        if sel_p in master['Project'].values:
+        df_proj = df_all[df_all['Project'] == sel_p].copy()
+        
+        # ค้นหา Baseline จาก Projects Master
+        master = st.session_state.get('projects_master', pd.DataFrame())
+        if not master.empty and sel_p in master['Project'].values:
             p_info = master[master['Project'] == sel_p].iloc[0]
-            p_s, p_e = pd.to_datetime(p_info['Start_Date']), pd.to_datetime(p_info['End_Date']) + pd.Timedelta(days=1)
-            
-            df_proj = df_all[df_all['Project'] == sel_p].copy()
-            p_pct = df_proj['Progress'].mean()
-            st.metric(f"📊 ภาพรวม {sel_p}", f"{p_pct:.1f}%")
+            p_s = pd.to_datetime(p_info['Start_Date'])
+            p_e = pd.to_datetime(p_info['End_Date']) + pd.Timedelta(days=1)
+        else:
+            # 💡 ถ้าหาในชีต Projects ไม่เจอ ให้เอาวันเริ่ม-จบ ของงานย่อยที่เร็ว/ช้าสุดมาเป็น Baseline แทน
+            p_s = df_proj['Start_Date'].min()
+            p_e = df_proj['End_Date'].max() + pd.Timedelta(days=1)
+            st.warning(f"⚠️ ไม่พบข้อมูล Baseline ของ '{sel_p}' ในชีต Projects (ใช้ข้อมูลจากงานย่อยแทน)")
 
-            plot_data = []
-            # Level 1: Project
-            plot_data.append({'Task': f"🏢 {sel_p}", 'Start': p_s, 'End': p_e, 'Type': 'P_Plan', 'Label': ''})
-            plot_data.append({'Task': f"🏢 {sel_p}", 'Start': p_s, 'End': p_s + (p_e - p_s)*(p_pct/100), 'Type': 'P_Act', 'Label': f"{int(p_pct)}%"})
+        p_pct = df_proj['Progress'].mean()
+        st.metric(f"📊 Overall Progress: {sel_p}", f"{p_pct:.1f}%")
 
-            # Level 2 & 3
-            df_mt = df_proj.groupby('Main_Task').agg({'Start_Date': 'min', 'End_Date': 'max', 'Progress': 'mean'}).reset_index().sort_values('Start_Date')
-            for _, row in df_mt.iterrows():
-                ms, me = row['Start_Date'], row['End_Date'] + pd.Timedelta(days=1)
-                mt_lab = f"📑 {row['Main_Task']}"
-                plot_data.append({'Task': mt_lab, 'Start': ms, 'End': me, 'Type': 'M_Plan', 'Label': ''})
-                plot_data.append({'Task': mt_lab, 'Start': ms, 'End': ms + (me - ms)*(row['Progress']/100), 'Type': 'M_Act', 'Label': f"{int(row['Progress'])}%"})
+        plot_data = []
+        # Level 1: Project (Baseline & Actual)
+        label_p = f"🏢 {sel_p}"
+        plot_data.append({'Task': label_p, 'Start': p_s, 'End': p_e, 'Type': 'P_Plan', 'Label': ''})
+        p_act_end = p_s + ((p_e - p_s) * (p_pct / 100))
+        plot_data.append({'Task': label_p, 'Start': p_s, 'End': p_act_end, 'Type': 'P_Act', 'Label': f"{int(p_pct)}%"})
 
-                df_stk = df_proj[df_proj['Main_Task'] == row['Main_Task']].groupby('Sub_Task').agg({'Start_Date': 'min', 'End_Date': 'max', 'Progress': 'mean'}).reset_index().sort_values('Start_Date')
-                for _, srow in df_stk.iterrows():
-                    ss, se = srow['Start_Date'], srow['End_Date'] + pd.Timedelta(days=1)
-                    st_lab = f"   └ {srow['Sub_Task']}"
-                    plot_data.append({'Task': st_lab, 'Start': ss, 'End': se, 'Type': 'S_Plan', 'Label': ''})
-                    plot_data.append({'Task': st_lab, 'Start': ss, 'End': ss + (se - ss)*(srow['Progress']/100), 'Type': 'S_Act', 'Label': f"{int(srow['Progress'])}%"})
+        # Level 2 & 3: Main Task & Sub Task
+        df_mt = df_proj.groupby('Main_Task').agg({'Start_Date': 'min', 'End_Date': 'max', 'Progress': 'mean'}).reset_index().sort_values('Start_Date')
+        for _, row in df_mt.iterrows():
+            ms, me = row['Start_Date'], row['End_Date'] + pd.Timedelta(days=1)
+            mt_lab = f"📑 {row['Main_Task']}"
+            plot_data.append({'Task': mt_lab, 'Start': ms, 'End': me, 'Type': 'M_Plan', 'Label': ''})
+            m_act_end = ms + ((me - ms) * (row['Progress'] / 100))
+            plot_data.append({'Task': mt_lab, 'Start': ms, 'End': m_act_end, 'Type': 'M_Act', 'Label': f"{int(row['Progress'])}%"})
 
-            fig = px.timeline(pd.DataFrame(plot_data), x_start="Start", x_end="End", y="Task", color="Type", text="Label", height=600,
-                             color_discrete_map={"P_Plan": "#E5E7E9", "P_Act": "#2C3E50", "M_Plan": "#D6EAF8", "M_Act": "#2E86C1", "S_Plan": "#D4EFDF", "S_Act": "#28B463"})
-            fig.update_yaxes(categoryorder="array", categoryarray=pd.DataFrame(plot_data)['Task'].unique()[::-1], title="")
-            fig.update_traces(textposition='inside', textfont=dict(color="white"))
-            st.plotly_chart(fig, use_container_width=True)
+            df_stk = df_proj[df_proj['Main_Task'] == row['Main_Task']].groupby('Sub_Task').agg({'Start_Date': 'min', 'End_Date': 'max', 'Progress': 'mean'}).reset_index().sort_values('Start_Date')
+            for _, srow in df_stk.iterrows():
+                ss, se = srow['Start_Date'], srow['End_Date'] + pd.Timedelta(days=1)
+                st_lab = f"   └ {srow['Sub_Task']}"
+                plot_data.append({'Task': st_lab, 'Start': ss, 'End': se, 'Type': 'S_Plan', 'Label': ''})
+                s_act_end = ss + ((se - ss) * (srow['Progress'] / 100))
+                plot_data.append({'Task': st_lab, 'Start': ss, 'End': s_act_end, 'Type': 'S_Act', 'Label': f"{int(srow['Progress'])}%"})
+
+        df_p = pd.DataFrame(plot_data)
+        fig = px.timeline(df_p, x_start="Start", x_end="End", y="Task", color="Type", text="Label", height=600,
+                         color_discrete_map={
+                             "P_Plan": "#E5E7E9", "P_Act": "#2C3E50", 
+                             "M_Plan": "#D6EAF8", "M_Act": "#2E86C1", 
+                             "S_Plan": "#D4EFDF", "S_Act": "#28B463"
+                         })
+        fig.update_yaxes(categoryorder="array", categoryarray=df_p['Task'].unique()[::-1], title="")
+        fig.update_traces(textposition='inside', textfont=dict(color="white", size=14, family="Arial Black"))
+        
+        # ปรับความหนา 3 ระดับ
+        fig.update_traces(patch={"width": 0.8}, selector={"name": "P_Plan"})
+        fig.update_traces(patch={"width": 0.8}, selector={"name": "P_Act"})
+        fig.update_traces(patch={"width": 0.5}, selector={"name": "M_Plan"})
+        fig.update_traces(patch={"width": 0.5}, selector={"name": "M_Act"})
+        fig.update_traces(patch={"width": 0.25}, selector={"name": "S_Plan"})
+        fig.update_traces(patch={"width": 0.25}, selector={"name": "S_Act"})
+
+        st.plotly_chart(fig, use_container_width=True)
 
 # --- TAB 2: อัปเดตงาน (Quick Edit) ---
 with tabs[2]:
