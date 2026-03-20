@@ -197,34 +197,49 @@ with tabs[1]:
         st.plotly_chart(fig, use_container_width=True)
 
 # --- TAB 2: แก้ไข/ลบข้อมูล (Full Admin) ---
+# --- TAB 2: แก้ไข/ลบข้อมูล (ฉบับเพิ่มตัวเตือน) ---
 with tabs[2]:
     st.subheader("🛠️ การจัดการข้อมูล (แก้ไข / ลบ)")
     df_raw = st.session_state.get('data', pd.DataFrame()).copy()
+    
     if not df_raw.empty:
-        st.info("💡 คลิกที่ช่องเพื่อแก้ไข หรือติ๊กถูกด้านซ้ายเพื่อเลือกแถวที่ต้องการลบ")
-        df_raw.insert(0, "เลือกเพื่อลบ", False)
+        st.info("💡 คลิกที่ช่องเพื่อแก้ไข | ติ๊กถูกหน้าแถวเพื่อเลือก 'ลบ'")
+        
+        # เพิ่มคอลัมน์ Checkbox สำหรับการเลือก
+        df_raw.insert(0, "เลือก", False)
         
         edited_df = st.data_editor(
             df_raw,
             column_config={
-                "เลือกเพื่อลบ": st.column_config.CheckboxColumn("ลบ?", default=False),
+                "เลือก": st.column_config.CheckboxColumn("ลบ?", default=False),
                 "Progress": st.column_config.NumberColumn("Progress (%)", min_value=0, max_value=100),
-                "Start_Date": st.column_config.DateColumn("วันเริ่ม"),
-                "End_Date": st.column_config.DateColumn("วันจบ")
             },
-            hide_index=True, use_container_width=True, key="admin_editor"
+            hide_index=True, 
+            use_container_width=True, 
+            key="admin_editor_v6"
         )
         
         c1, c2 = st.columns(2)
-        if c1.button("💾 บันทึกการแก้ไขทั้งหมด", use_container_width=True, type="primary"):
-            final_save = edited_df.drop(columns=["เลือกเพื่อลบ"])
-            if save_data(final_save):
-                st.success("อัปเดตข้อมูลแล้ว"); st.rerun()
         
-        if c2.button("🗑️ ลบแถวที่ติ๊กถูก", use_container_width=True):
-            remaining = edited_df[edited_df["เลือกเพื่อลบ"] == False].drop(columns=["เลือกเพื่อลบ"])
-            if save_data(remaining):
-                st.warning(f"ลบข้อมูล {len(edited_df)-len(remaining)} รายการแล้ว"); st.rerun()
+        # ปุ่มบันทึก
+        if c1.button("💾 บันทึกการแก้ไข", use_container_width=True, type="primary"):
+            final_save = edited_df.drop(columns=["เลือก"])
+            if save_data(final_save):
+                st.success("✅ อัปเดตข้อมูลลง Google Sheets สำเร็จ!")
+                st.session_state['data'] = final_save
+                st.rerun()
+        
+        # ปุ่มลบ (เพิ่มระบบเช็ค)
+        if c2.button("🗑️ ลบแถวที่เลือก", use_container_width=True):
+            to_delete = edited_df[edited_df["เลือก"] == True]
+            if not to_delete.empty:
+                remaining = edited_df[edited_df["เลือก"] == False].drop(columns=["เลือก"])
+                if save_data(remaining):
+                    st.warning(f"⚠️ ลบข้อมูล {len(to_delete)} รายการเรียบร้อย")
+                    st.session_state['data'] = remaining
+                    st.rerun()
+            else:
+                st.error("❌ กรุณา 'ติ๊กถูก' หน้าแถวที่ต้องการลบก่อนกดปุ่มนี้ครับ")
 
 # --- TAB 3: อันดับผลงาน ---
 with tabs[3]:
