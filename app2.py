@@ -237,7 +237,7 @@ with tabs[1]: # แผนผัง (เรียงจากบนลงล่�
                     title=""
                 )
                 
-                fig.update_traces(textfont=dict(size=10, color="white", family="Arial Black"), textposition='inside')
+                fig.update_traces(textfont=dict(size=12, color="white", family="Arial Black"), textposition='inside')
                 fig.update_traces(patch={"width": 0.75}, selector={"name": "Planned"})
                 fig.update_traces(patch={"width": 0.75}, selector={"name": "Actual"})
                 fig.update_traces(patch={"width": 0.4}, selector={"name": "Planned_Sub"})
