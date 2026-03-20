@@ -94,20 +94,27 @@ def save_data(df_to_save):
 @st.dialog("👤 รายละเอียดผู้รับผิดชอบ")
 def show_task_info(task_name, project_name):
     df = st.session_state['data']
-    # กรองหาทุกคนที่ทำงานนี้
     team = df[(df['Main_Task'] == project_name) & (df['Sub_Task'] == task_name)]
     
     st.subheader(f"📌 {task_name}")
-    st.write(f"📁 **โปรเจกต์:** {project_name}")
+    st.caption(f"📁 โปรเจกต์: {project_name}")
     st.divider()
     
-    for _, row in team.iterrows():
-        with st.container(border=True):
-            c1, c2 = st.columns([1, 3])
-            c1.write("👤")
-            c2.write(f"**{row['Employee']}**")
-            st.progress(int(row['Progress'])/100, text=f"ความคืบหน้า: {row['Progress']}%")
-            if row['Issue']: st.caption(f"📝 บันทึก: {row['Issue']}")
+    if team.empty:
+        st.write("ไม่พบข้อมูลผู้รับผิดชอบ")
+    else:
+        for _, row in team.iterrows():
+            with st.container(border=True):
+                c1, c2 = st.columns([1, 4])
+                c1.markdown("### 👤")
+                c2.markdown(f"**{row['Employee']}**")
+                c2.progress(int(row['Progress'])/100)
+                c2.write(f"ความคืบหน้า: {int(row['Progress'])}%")
+                if row['Issue'] and row['Issue'] != "":
+                    st.info(f"📝 **บันทึก:** {row['Issue']}")
+    
+    if st.button("ปิดหน้าต่าง", use_container_width=True):
+        st.rerun()
 
 @st.dialog("📝 อัปเดตงาน (Sync ทีม)")
 def update_task_dialog(index, row_data):
@@ -157,8 +164,8 @@ with st.sidebar:
     with st.expander("📂 จัดการโปรเจกต์ (Baseline)"):
         new_p_name = st.text_input("ชื่อโปรเจกต์ใหม่")
         c1, c2 = st.columns(2)
-        p_start, p_end = c1.date_input("เริ่ม"), c2.date_input("จบ", value=date.today() + timedelta(days=30))
-        if st.button("➕ เพิ่มโปรเจกต์", use_container_width=True):
+        p_start, p_end = c1.date_input("วันเริ่ม"), c2.date_input("วันจบ", value=date.today() + timedelta(days=30))
+        if st.button("➕ บันทึกโปรเจกต์", use_container_width=True):
             if new_p_name:
                 sh = connect_gsheet()
                 sh.worksheet('Projects').append_row([new_p_name, p_start.strftime('%Y-%m-%d'), p_end.strftime('%Y-%m-%d')])
@@ -167,7 +174,7 @@ with st.sidebar:
 # ==========================================
 # 7. MAIN UI
 # ==========================================
-tabs = st.tabs(["📝 ลงทะเบียน", "📊 แผนผัง & Popup", "🛠️ อัปเดต", "🏆 ผลงาน", "📑 รายงาน"])
+tabs = st.tabs(["📝 ลงทะเบียน", "📊 แผนผัง & Popup", "🛠️ อัพเดต", "🏆 ผลงาน", "📑 รายงาน"])
 
 with tabs[0]: # ลงทะเบียน
     with st.form("task_reg", clear_on_submit=True):
@@ -196,7 +203,6 @@ with tabs[1]: # แผนผัง (Interactive Popup)
             actual_pct = df_all[df_all['Main_Task'] == sel_p]['Progress'].mean()
             st.metric(f"Progress รวม: {sel_p}", f"{actual_pct:.1f}%")
 
-            # กรองงานย่อยและรวมชื่อคนทำไว้ใน hover
             df_sub = df_all[(df_all['Main_Task'] == sel_p) & (df_all['Employee'].isin(sel_emps_filter))].copy()
             if not df_sub.empty:
                 df_sub['Start'], df_sub['End_V'] = df_sub['Start_Date'], df_sub['End_Date'] + pd.Timedelta(days=1)
@@ -209,23 +215,31 @@ with tabs[1]: # แผนผัง (Interactive Popup)
                 }])
 
                 df_plot = pd.concat([summary_row, df_sub], ignore_index=True)
-                fig = px.timeline(df_plot, x_start="Start", x_end="End_V", y="Sub_Task", color="Type", text="Label", height=450,
-                                 color_discrete_map={"🏢 โปรเจกต์หลัก": "#333333", "📌 งานย่อย": "#636EFA"})
+                
+                # --- สร้างกราฟ ---
+                fig = px.timeline(
+                    df_plot, x_start="Start", x_end="End_V", y="Sub_Task", color="Type", text="Label", height=450,
+                    color_discrete_map={"🏢 โปรเจกต์หลัก": "#333333", "📌 งานย่อย": "#636EFA"},
+                    custom_data=["Sub_Task"] # ส่งชื่องานเข้าไปในกราฟเพื่อใช้ดักจับ
+                )
                 fig.update_traces(patch={"width": 0.7}, selector={"name": "🏢 โปรเจกต์หลัก"})
                 fig.update_traces(patch={"width": 0.35}, selector={"name": "📌 งานย่อย"})
                 fig.update_yaxes(autorange="reversed")
                 fig.add_vline(x=datetime.now().timestamp()*1000, line_dash="dot", line_color="red")
                 
-                # แสดงกราฟและดักจับการคลิก
-                st.info("💡 คลิกที่แท่งงานย่อย เพื่อดูรายชื่อคนทำงาน")
-                selected_point = st.plotly_chart(fig, use_container_width=True, on_select="rerun")
+                st.info("💡 คลิกที่แท่งงานย่อยในกราฟ เพื่อดูรายชื่อคนทำงาน")
                 
-                # Logic Popup เมื่อมีการคลิก
-                if selected_point and "selection" in selected_point and selected_point["selection"]["points"]:
-                    point_data = selected_point["selection"]["points"][0]
-                    t_name = point_data["y"]
-                    if "Baseline" not in t_name: # ไม่โชว์ popup ถ้าคลิกเส้นรวม
-                        show_task_info(t_name, sel_p)
+                # 🔥 จุดที่แก้ไข: ใช้ selection_mode="points" และจับเหตุการณ์
+                selected_point = st.plotly_chart(fig, use_container_width=True, on_select="rerun", selection_mode="points")
+                
+                # ตรวจสอบการคลิก
+                if selected_point and "selection" in selected_point and "points" in selected_point["selection"]:
+                    points = selected_point["selection"]["points"]
+                    if points:
+                        # ดึงชื่อ Task จาก custom_data ที่เราใส่ไว้ในตอนสร้าง fig
+                        t_name = points[0].get("y") 
+                        if t_name and "Baseline" not in t_name:
+                            show_task_info(t_name, sel_p)
 
 with tabs[2]: # อัปเดต
     st.subheader("🛠️ คลิกเลือกแถวงานเพื่ออัปเดตยกทีม")
