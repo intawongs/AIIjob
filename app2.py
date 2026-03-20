@@ -148,33 +148,39 @@ with tabs[0]:
 with tabs[1]:
     df_all = st.session_state.get('data', pd.DataFrame())
     if not df_all.empty:
+        # 1. เลือกโปรเจกต์
         available_p = df_all['Project'].unique().tolist()
-        sel_p = st.selectbox("📂 ดูแผนผังโปรเจกต์:", available_p, key="p_gantt_v6")
+        sel_p = st.selectbox("📂 ดูแผนผังโปรเจกต์:", available_p, key="p_gantt_v9")
+        
         df_proj = df_all[df_all['Project'] == sel_p].copy()
         
-        # Baseline Logic
+        # --- Baseline Logic ---
         master = st.session_state.get('projects_master', pd.DataFrame())
         if not master.empty and sel_p in master['Project'].values:
             p_info = master[master['Project'] == sel_p].iloc[0]
             p_s, p_e = pd.to_datetime(p_info['Start_Date']), pd.to_datetime(p_info['End_Date']) + pd.Timedelta(days=1)
         else:
             p_s, p_e = df_proj['Start_Date'].min(), df_proj['End_Date'].max() + pd.Timedelta(days=1)
-        
-        p_pct = df_proj['Progress'].mean()
-        st.metric(f"🚀 Overall: {sel_p}", f"{p_pct:.1f}%")
 
+        p_pct = df_proj['Progress'].mean()
+        st.metric(f"📊 Overall: {sel_p}", f"{p_pct:.1f}%")
+
+        # --- ส่วนวาดกราฟ (Gantt) ---
         plot_data = []
-        # Project Level
-        plot_data.append({'Task': f"🏢 {sel_p}", 'Start': p_s, 'End': p_e, 'Type': 'P_Plan', 'Label': '', 'Width': 0.8, 'Color': '#E5E7E9', 'Pos': 'inside'})
-        plot_data.append({'Task': f"🏢 {sel_p}", 'Start': p_s, 'End': p_s+(p_e-p_s)*(p_pct/100), 'Type': 'P_Act', 'Label': f"{int(p_pct)}%", 'Width': 0.8, 'Color': '#2C3E50', 'Pos': 'inside'})
-        
-        # Tasks & Sub-tasks
+        # ระดับ Project
+        p_label = f"🏢 {sel_p}"
+        plot_data.append({'Task': p_label, 'Start': p_s, 'End': p_e, 'Type': 'P_Plan', 'Label': '', 'Width': 0.8, 'Color': '#E5E7E9', 'Pos': 'inside'})
+        p_act_e = p_s + ((p_e - p_s) * (p_pct / 100))
+        plot_data.append({'Task': p_label, 'Start': p_s, 'End': p_act_e, 'Type': 'P_Act', 'Label': f"{int(p_pct)}%", 'Width': 0.8, 'Color': '#2C3E50', 'Pos': 'inside'})
+
         main_tasks = df_proj['Main_Task'].unique()
-        colors = px.colors.qualitative.Prism
+        colors = px.colors.qualitative.Prism 
+        
         for idx, mt in enumerate(main_tasks):
             df_mt_group = df_proj[df_proj['Main_Task'] == mt]
             group_col = colors[idx % len(colors)]
             mt_s, mt_e, mt_pct = df_mt_group['Start_Date'].min(), df_mt_group['End_Date'].max()+pd.Timedelta(days=1), df_mt_group['Progress'].mean()
+            
             mt_lab = f"📑 {mt}"
             plot_data.append({'Task': mt_lab, 'Start': mt_s, 'End': mt_e, 'Type': f'M_P_{idx}', 'Label': '', 'Width': 0.5, 'Color': '#F2F3F4', 'Pos': 'outside'})
             plot_data.append({'Task': mt_lab, 'Start': mt_s, 'End': mt_s+(mt_e-mt_s)*(mt_pct/100), 'Type': f'M_A_{idx}', 'Label': f"{int(mt_pct)}%", 'Width': 0.5, 'Color': group_col, 'Pos': 'outside'})
@@ -183,18 +189,55 @@ with tabs[1]:
             for s_idx, srow in df_stk_list.iterrows():
                 ss, se, st_pct = srow['Start_Date'], srow['End_Date']+pd.Timedelta(days=1), srow['Progress']
                 st_lab = f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└ {srow['Sub_Task']}"
-                plot_data.append({'Task': st_lab, 'Start': ss, 'End': se, 'Type': f'S_P_{idx}_{s_idx}', 'Label': '', 'Width': 0.25, 'Color': '#FBFCFC', 'Pos': 'outside'})
-                plot_data.append({'Task': st_lab, 'Start': ss, 'End': ss+(se-ss)*(st_pct/100), 'Type': f'S_A_{idx}_{s_idx}', 'Label': f"{int(st_pct)}%", 'Width': 0.25, 'Color': group_col, 'Pos': 'outside'})
-        
+                plot_data.append({'Task': st_lab, 'Start': ss, 'End': se, 'Type': f'S_P_{idx}_{s_idx}', 'Label': '', 'Width': 0.3, 'Color': '#FBFCFC', 'Pos': 'outside'})
+                plot_data.append({'Task': st_lab, 'Start': ss, 'End': ss+(se-ss)*(st_pct/100), 'Type': f'S_A_{idx}_{s_idx}', 'Label': f"{int(st_pct)}%", 'Width': 0.3, 'Color': group_col, 'Pos': 'outside'})
+
         df_p = pd.DataFrame(plot_data)
-        fig = px.timeline(df_p, x_start="Start", x_end="End", y="Task", color="Type", text="Label", height=len(df_p)*28+150)
+        fig = px.timeline(df_p, x_start="Start", x_end="End", y="Task", color="Type", text="Label", height=len(df_p)*25+150)
         for i, row in df_p.iterrows():
             f_col = "white" if row['Pos'] == 'inside' else "black"
             fig.update_traces(marker_color=row['Color'], selector={'name': row['Type']}, patch={"width": row['Width'], "textposition": row['Pos'], "textfont": {"size": 13, "family": "Arial Black", "color": f_col}})
         fig.update_yaxes(categoryorder="array", categoryarray=df_p['Task'].unique()[::-1], title="")
         fig.update_layout(showlegend=False, margin=dict(r=120))
-        fig.add_vline(x=datetime.now().timestamp()*1000, line_dash="dot", line_color="red", annotation_text="Today")
         st.plotly_chart(fig, use_container_width=True)
+
+        # --- 🔥 ส่วนที่ดึงกลับมา: ตารางแสดงรายละเอียดคนทำ ---
+        st.markdown("---")
+        st.subheader("🔍 ตรวจสอบรายละเอียดงานและผู้รับผิดชอบ")
+        st.caption("💡 คลิกเลือกแถวในตารางด้านล่าง เพื่อดูรายชื่อพนักงานและบันทึกปัญหา (Issue)")
+        
+        # สรุปข้อมูลงานย่อย (ไม่ซ้ำแถวคน) เพื่อให้เลือกง่าย
+        df_summary = df_proj.groupby(['Sub_Task', 'Main_Task']).agg({
+            'Progress': 'mean',
+            'Start_Date': 'min',
+            'End_Date': 'max'
+        }).reset_index()
+
+        # ตาราง Interactive สำหรับการคลิก
+        event = st.dataframe(
+            df_summary[['Sub_Task', 'Main_Task', 'Progress']], 
+            use_container_width=True, 
+            hide_index=True, 
+            on_select="rerun", 
+            selection_mode="single-row"
+        )
+
+        # เมื่อมีการคลิกเลือกแถว
+        if event.selection.rows:
+            idx = event.selection.rows[0]
+            selected_sub = df_summary.iloc[idx]['Sub_Task']
+            selected_main = df_summary.iloc[idx]['Main_Task']
+            
+            # ดึงรายชื่อพนักงานทุกคนที่อยู่ใน Sub_Task นี้
+            team_info = df_proj[(df_proj['Sub_Task'] == selected_sub) & (df_proj['Main_Task'] == selected_main)]
+            
+            with st.expander(f"👥 รายชื่อทีมงานสำหรับ: {selected_sub}", expanded=True):
+                for _, row in team_info.iterrows():
+                    c1, c2 = st.columns([1, 3])
+                    c1.write(f"👤 **{row['Employee']}**")
+                    c2.progress(int(row['Progress'])/100)
+                    if row['Issue']:
+                        st.warning(f"🚩 **Issue:** {row['Issue']}")
 
 # --- TAB 2: แก้ไข/ลบข้อมูล (Full Admin) ---
 # --- TAB 2: จัดการข้อมูล (ฉบับ Smart Status Check) ---
