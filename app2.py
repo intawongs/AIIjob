@@ -206,11 +206,11 @@ with tabs[1]: # แผนผัง (Summary + Sub-tasks)
 
                 summary_row = pd.DataFrame([{
                     'Sub_Task': f"🎯 ภาพรวม: {sel_p}", 'Employee': 'OVERALL', 
-                    'Start': p_s, 'End_V': p_e + pd.Timedelta(days=1), 'Progress': actual_pct, 'Type': "🏢 โปรเจกต์หลัก"
+                    'Start': p_s, 'End_V': p_e + pd.Timedelta(days=1), 'Progress': f"{actual_pct:.2f}%", 'Type': "🏢 โปรเจกต์หลัก"
                 }])
 
                 df_plot = pd.concat([summary_row, df_sub], ignore_index=True)
-                fig = px.timeline(df_plot, x_start="Start", x_end="End_V", y="Sub_Task", color="Type", text="Progress", height=250,
+                fig = px.timeline(df_plot, x_start="Start", x_end="End_V", y="Sub_Task", color="Type", text="Progress", height=320,
                                  color_discrete_map={"🏢 โปรเจกต์หลัก": "#F02323", "📌 งานย่อย": "#0BE99F"})
                 fig.update_yaxes(autorange="reversed", title="")
                 fig.add_vline(x=datetime.now().timestamp()*1000, line_dash="dot", line_color="red")
