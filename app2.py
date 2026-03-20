@@ -91,7 +91,7 @@ def save_data(df_to_save):
 # ==========================================
 # 4. DIALOGS
 # ==========================================
-@st.dialog("👤 รายละเอียดผู้รับผิดชอบ")
+@st.dialog("👤 รายละเอียดทีมงาน")
 def show_task_info(task_name, project_name):
     df = st.session_state['data']
     team = df[(df['Main_Task'] == project_name) & (df['Sub_Task'] == task_name)]
@@ -106,7 +106,7 @@ def show_task_info(task_name, project_name):
             c2.caption(f"ความคืบหน้า: {int(row['Progress'])}%")
             if row['Issue']: st.info(f"📝 {row['Issue']}")
 
-@st.dialog("📝 อัปเดตงานยกทีม (Group Sync)")
+@st.dialog("📝 อัปเดตงานยกทีม (Sync)")
 def update_task_dialog(index, row_data):
     df = st.session_state['data']
     task_name, project_name = row_data['Sub_Task'], row_data['Main_Task']
@@ -189,7 +189,7 @@ with tabs[0]: # ลงทะเบียน
                 st.session_state['data'] = updated
                 st.toast(f"✅ เพิ่มงาน '{sub}' สำเร็จ"); st.rerun()
 
-with tabs[1]: # แผนผัง (เรียงจากบนลงล่าง)
+with tabs[1]: # แผนผัง (เรียงจากบนลงล่างตามเวลา)
     df_all = st.session_state['data']
     if not df_all.empty and st.session_state['projects']:
         sel_p = st.selectbox("📂 ดูภาพรวม:", st.session_state['projects'], key="dash_p_sel")
@@ -201,42 +201,43 @@ with tabs[1]: # แผนผัง (เรียงจากบนลงล่�
             actual_pct = df_all[df_all['Main_Task'] == sel_p]['Progress'].mean()
             st.metric(f"Progress รวม: {sel_p}", f"{actual_pct:.1f}%")
 
-            # Sorting & Overlay Logic
+            # 🔥 1. เตรียมข้อมูลและเรียงลำดับเวลา (Start_Date เก่าไปใหม่)
             df_sub = df_all[(df_all['Main_Task'] == sel_p) & (df_all['Employee'].isin(sel_emps_filter))].copy()
             if not df_sub.empty:
-                df_sub = df_sub.sort_values(by='Start_Date', ascending=True)
                 plot_data = []
                 
-                # Baseline โปรเจกต์หลัก (ตั้งให้ Sort_Key ต่ำสุดเพื่อให้โผล่บนสุด)
-                plot_data.append({'Task': f"🏢 {sel_p}", 'Start': p_s, 'End': p_e, 'Type': 'Planned', 'Label': '', 'Sort_Key': pd.Timestamp.min})
+                # Baseline โปรเจกต์หลัก (ตั้งใจให้ค่า Task นี้อยู่บนสุด)
+                main_task_label = f"🏢 {sel_p}"
+                plot_data.append({'Task': main_task_label, 'Start': p_s, 'End': p_e, 'Type': 'Planned', 'Label': ''})
                 p_actual_end = p_s + ((p_e - p_s) * (actual_pct / 100))
-                plot_data.append({'Task': f"🏢 {sel_p}", 'Start': p_s, 'End': p_actual_end, 'Type': 'Actual', 'Label': f"{int(actual_pct)}%", 'Sort_Key': pd.Timestamp.min})
+                plot_data.append({'Task': main_task_label, 'Start': p_s, 'End': p_actual_end, 'Type': 'Actual', 'Label': f"{int(actual_pct)}%"})
 
-                # งานย่อย (เรียงตาม Start_Date)
-                df_grouped = df_sub.groupby('Sub_Task').agg({'Start_Date': 'min', 'End_Date': 'max', 'Progress': 'mean'}).reset_index().sort_values(by='Start_Date')
+                # งานย่อย (Group และเรียงตาม Start_Date)
+                df_grouped = df_sub.groupby('Sub_Task').agg({'Start_Date': 'min', 'End_Date': 'max', 'Progress': 'mean'}).reset_index().sort_values(by='Start_Date', ascending=True)
+                
                 for _, row in df_grouped.iterrows():
                     s, e = row['Start_Date'], row['End_Date'] + pd.Timedelta(days=1)
-                    plot_data.append({'Task': row['Sub_Task'], 'Start': s, 'End': e, 'Type': 'Planned_Sub', 'Label': '', 'Sort_Key': row['Start_Date']})
+                    plot_data.append({'Task': row['Sub_Task'], 'Start': s, 'End': e, 'Type': 'Planned_Sub', 'Label': ''})
                     dur = (e - s) * (row['Progress'] / 100)
-                    plot_data.append({'Task': row['Sub_Task'], 'Start': s, 'End': s + dur, 'Type': 'Actual_Sub', 'Label': f"{int(row['Progress'])}%", 'Sort_Key': row['Start_Date']})
+                    plot_data.append({'Task': row['Sub_Task'], 'Start': s, 'End': s + dur, 'Type': 'Actual_Sub', 'Label': f"{int(row['Progress'])}%"})
 
                 df_p = pd.DataFrame(plot_data)
                 
+                # 🔥 2. สร้างลำดับ Task สำหรับแกน Y (เรียงจากบนลงล่าง)
+                # เราต้องการ [Main_Task, Sub_Task_1, Sub_Task_2, ...]
+                order = [main_task_label] + df_grouped['Sub_Task'].tolist()
+                
                 fig = px.timeline(df_p, x_start="Start", x_end="End", y="Task", color="Type", text="Label", height=500,
-                                 color_discrete_map={"Planned": "#E5E7E9", "Actual": "#FC0B0B", "Planned_Sub": "#EBF5FB", "Actual_Sub": "#09F31D"})
+                                 color_discrete_map={"Planned": "#E5E7E9", "Actual": "#087FF7", "Planned_Sub": "#EBF5FB", "Actual_Sub": "#0CE2F1"})
                 
-                # 🔥 ปรับตัวเลข % ให้ใหญ่สะใจ
-                fig.update_traces(textfont=dict(size=12, color="white", family="Arial Black"), textposition='inside')
-                
-                # 🔥 แก้ปัญหาเรียงจากล่างขึ้นบน: บังคับลำดับ Array ของแกน Y ใหม่
+                # 🔥 3. บังคับลำดับแกน Y (Plotly จะวาดจากล่างขึ้นบน เราเลยต้อง Reverse List)
                 fig.update_yaxes(
                     categoryorder="array", 
-                    categoryarray=df_p['Task'].unique()[::-1], 
-                    autorange="reversed", 
+                    categoryarray=order[::-1], 
                     title=""
                 )
                 
-                # ปรับความหนา (300 vs 150)
+                fig.update_traces(textfont=dict(size=10, color="white", family="Arial Black"), textposition='inside')
                 fig.update_traces(patch={"width": 0.75}, selector={"name": "Planned"})
                 fig.update_traces(patch={"width": 0.75}, selector={"name": "Actual"})
                 fig.update_traces(patch={"width": 0.4}, selector={"name": "Planned_Sub"})
@@ -247,10 +248,10 @@ with tabs[1]: # แผนผัง (เรียงจากบนลงล่�
 
                 st.markdown("---")
                 st.markdown("🔍 **เลือกงานเพื่อดูคนรับผิดชอบ**")
-                task_list = df_grouped[['Sub_Task', 'Progress']]
-                ev = st.dataframe(task_list, use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single-row")
+                task_list_display = df_grouped[['Sub_Task', 'Progress']]
+                ev = st.dataframe(task_list_display, use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single-row")
                 if ev.selection.rows:
-                    show_task_info(task_list.iloc[ev.selection.rows[0]]['Sub_Task'], sel_p)
+                    show_task_info(task_list_display.iloc[ev.selection.rows[0]]['Sub_Task'], sel_p)
 
 with tabs[2]: # อัปเดต
     st.subheader("🛠️ คลิกเลือกงานจากตารางเพื่ออัปเดต")
