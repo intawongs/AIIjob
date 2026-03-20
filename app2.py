@@ -150,7 +150,7 @@ with tabs[1]:
     if not df_all.empty:
         # 1. เลือกโปรเจกต์
         available_p = df_all['Project'].unique().tolist()
-        sel_p = st.selectbox("📂 ดูแผนผังโปรเจกต์:", available_p, key="p_gantt_v9")
+        sel_p = st.selectbox("📂 ดูแผนผังรายโปรเจกต์:", available_p, key="p_gantt_v10")
         
         df_proj = df_all[df_all['Project'] == sel_p].copy()
         
@@ -158,47 +158,85 @@ with tabs[1]:
         master = st.session_state.get('projects_master', pd.DataFrame())
         if not master.empty and sel_p in master['Project'].values:
             p_info = master[master['Project'] == sel_p].iloc[0]
-            p_s, p_e = pd.to_datetime(p_info['Start_Date']), pd.to_datetime(p_info['End_Date']) + pd.Timedelta(days=1)
+            p_s = pd.to_datetime(p_info['Start_Date'])
+            p_e = pd.to_datetime(p_info['End_Date']) + pd.Timedelta(days=1)
         else:
-            p_s, p_e = df_proj['Start_Date'].min(), df_proj['End_Date'].max() + pd.Timedelta(days=1)
+            p_s = df_proj['Start_Date'].min()
+            p_e = df_proj['End_Date'].max() + pd.Timedelta(days=1)
 
         p_pct = df_proj['Progress'].mean()
-        st.metric(f"📊 Overall: {sel_p}", f"{p_pct:.1f}%")
+        st.metric(f"📊 Overall Progress: {sel_p}", f"{p_pct:.1f}%")
 
-        # --- ส่วนวาดกราฟ (Gantt) ---
         plot_data = []
-        # ระดับ Project
+        
+        # --- ระดับ 1: PROJECT (หนาสุด 0.8) ---
         p_label = f"🏢 {sel_p}"
+        # แถบเงา (Planned)
         plot_data.append({'Task': p_label, 'Start': p_s, 'End': p_e, 'Type': 'P_Plan', 'Label': '', 'Width': 0.8, 'Color': '#E5E7E9', 'Pos': 'inside'})
+        # แถบจริง (Actual)
         p_act_e = p_s + ((p_e - p_s) * (p_pct / 100))
-        plot_data.append({'Task': p_label, 'Start': p_s, 'End': p_act_e, 'Type': 'P_Act', 'Label': f"{int(p_pct)}%", 'Width': 0.8, 'Color': "#207AD3", 'Pos': 'inside'})
+        plot_data.append({'Task': p_label, 'Start': p_s, 'End': p_act_e, 'Type': 'P_Act', 'Label': f"{int(p_pct)}%", 'Width': 0.8, 'Color': '#2C3E50', 'Pos': 'inside'})
 
+        # --- ระดับ 2 & 3: MAIN TASK & SUB TASKS (แยกสีตามกลุ่ม) ---
         main_tasks = df_proj['Main_Task'].unique()
-        colors = px.colors.qualitative.Prism 
+        colors = px.colors.qualitative.Prism # Palette สีที่แยกความต่างได้ชัดเจน
         
         for idx, mt in enumerate(main_tasks):
             df_mt_group = df_proj[df_proj['Main_Task'] == mt]
-            group_col = colors[idx % len(colors)]
-            mt_s, mt_e, mt_pct = df_mt_group['Start_Date'].min(), df_mt_group['End_Date'].max()+pd.Timedelta(days=1), df_mt_group['Progress'].mean()
+            group_color = colors[idx % len(colors)]
             
-            mt_lab = f"📑 {mt}"
-            plot_data.append({'Task': mt_lab, 'Start': mt_s, 'End': mt_e, 'Type': f'M_P_{idx}', 'Label': '', 'Width': 0.5, 'Color': '#F2F3F4', 'Pos': 'outside'})
-            plot_data.append({'Task': mt_lab, 'Start': mt_s, 'End': mt_s+(mt_e-mt_s)*(mt_pct/100), 'Type': f'M_A_{idx}', 'Label': f"{int(mt_pct)}%", 'Width': 0.5, 'Color': group_col, 'Pos': 'outside'})
+            # คำนวณภาพรวมของ Main Task นี้
+            mt_s = df_mt_group['Start_Date'].min()
+            mt_e = df_mt_group['End_Date'].max() + pd.Timedelta(days=1)
+            mt_pct = df_mt_group['Progress'].mean()
             
+            # แถบ Main Task (หนากลาง 0.55)
+            mt_label = f"📑 {mt}"
+            plot_data.append({'Task': mt_label, 'Start': mt_s, 'End': mt_e, 'Type': f'M_Plan_{idx}', 'Label': '', 'Width': 0.55, 'Color': '#F4F6F6', 'Pos': 'outside'})
+            m_act_e = mt_s + ((mt_e - mt_s) * (mt_pct / 100))
+            plot_data.append({'Task': mt_label, 'Start': mt_s, 'End': m_act_e, 'Type': f'M_Act_{idx}', 'Label': f"{int(mt_pct)}%", 'Width': 0.55, 'Color': group_color, 'Pos': 'outside'})
+            
+            # แถบ Sub-tasks ภายใต้ Main Task นี้ (บาง 0.3)
+            # เรียงลำดับงานย่อยตามวันเริ่มงาน
             df_stk_list = df_mt_group.groupby('Sub_Task').agg({'Start_Date': 'min', 'End_Date': 'max', 'Progress': 'mean'}).reset_index().sort_values('Start_Date')
+            
             for s_idx, srow in df_stk_list.iterrows():
-                ss, se, st_pct = srow['Start_Date'], srow['End_Date']+pd.Timedelta(days=1), srow['Progress']
-                st_lab = f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└ {srow['Sub_Task']}"
-                plot_data.append({'Task': st_lab, 'Start': ss, 'End': se, 'Type': f'S_P_{idx}_{s_idx}', 'Label': '', 'Width': 0.3, 'Color': '#FBFCFC', 'Pos': 'outside'})
-                plot_data.append({'Task': st_lab, 'Start': ss, 'End': ss+(se-ss)*(st_pct/100), 'Type': f'S_A_{idx}_{s_idx}', 'Label': f"{int(st_pct)}%", 'Width': 0.3, 'Color': group_col, 'Pos': 'outside'})
+                ss, se = srow['Start_Date'], srow['End_Date'] + pd.Timedelta(days=1)
+                st_pct = srow['Progress']
+                st_label = f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└ {srow['Sub_Task']}" # เยื้องเข้าไปให้เห็นว่าเป็นงานย่อย
+                
+                # แถบเงาหลัง Sub-task
+                plot_data.append({'Task': st_label, 'Start': ss, 'End': se, 'Type': f'S_Plan_{idx}_{s_idx}', 'Label': '', 'Width': 0.3, 'Color': '#FBFCFC', 'Pos': 'outside'})
+                # แถบจริง Sub-task (ใช้สีเดียวกับ Main Task แม่)
+                s_act_e = ss + ((se - ss) * (st_pct / 100))
+                plot_data.append({'Task': st_label, 'Start': ss, 'End': s_act_e, 'Type': f'S_Act_{idx}_{s_idx}', 'Label': f"{int(st_pct)}%", 'Width': 0.3, 'Color': group_color, 'Pos': 'outside'})
 
         df_p = pd.DataFrame(plot_data)
-        fig = px.timeline(df_p, x_start="Start", x_end="End", y="Task", color="Type", text="Label", height=len(df_p)*25+150)
+        
+        # วาดกราฟ
+        fig = px.timeline(df_p, x_start="Start", x_end="End", y="Task", color="Type", text="Label", height=len(df_p)*25 + 180)
+
+        # ปรับแต่งการแสดงผลราย Trace
         for i, row in df_p.iterrows():
             f_col = "white" if row['Pos'] == 'inside' else "black"
-            fig.update_traces(marker_color=row['Color'], selector={'name': row['Type']}, patch={"width": row['Width'], "textposition": row['Pos'], "textfont": {"size": 13, "family": "Arial Black", "color": f_col}})
+            # 🔥 ขยายขนาดฟอนต์เป็น 15px
+            fig.update_traces(
+                marker_color=row['Color'], 
+                selector={'name': row['Type']},
+                patch={
+                    "width": row['Width'], 
+                    "textposition": row['Pos'], 
+                    "textfont": {"size": 15, "family": "Arial Black", "color": f_col}
+                }
+            )
+
+        # เรียงแกน Y จากบนลงล่าง
         fig.update_yaxes(categoryorder="array", categoryarray=df_p['Task'].unique()[::-1], title="")
-        fig.update_layout(showlegend=False, margin=dict(r=120))
+        fig.update_layout(showlegend=False, margin=dict(r=120)) # เผื่อพื้นที่ขวาให้ตัวเลข
+        
+        # เส้น "วันนี้"
+        fig.add_vline(x=datetime.now().timestamp()*1000, line_dash="dot", line_color="red", annotation_text="Today")
+        
         st.plotly_chart(fig, use_container_width=True)
 
         # --- 🔥 ส่วนที่ดึงกลับมา: ตารางแสดงรายละเอียดคนทำ ---
@@ -213,13 +251,18 @@ with tabs[1]:
             'End_Date': 'max'
         }).reset_index()
 
-        # ตาราง Interactive สำหรับการคลิก
+        # ตาราง Interactive สำหรับการคลิก (ปรับตัวหนังสือให้ใหญ่ขึ้นด้วย)
         event = st.dataframe(
             df_summary[['Sub_Task', 'Main_Task', 'Progress']], 
             use_container_width=True, 
             hide_index=True, 
             on_select="rerun", 
-            selection_mode="single-row"
+            selection_mode="single-row",
+            column_config={
+                "Progress": st.column_config.NumberColumn("Progress (%)", format="%d%%"),
+                "Sub_Task": st.column_config.TextColumn("งานย่อย", width="large"),
+                "Main_Task": st.column_config.TextColumn("งานรอง", width="medium"),
+            }
         )
 
         # เมื่อมีการคลิกเลือกแถว
@@ -231,11 +274,14 @@ with tabs[1]:
             # ดึงรายชื่อพนักงานทุกคนที่อยู่ใน Sub_Task นี้
             team_info = df_proj[(df_proj['Sub_Task'] == selected_sub) & (df_proj['Main_Task'] == selected_main)]
             
-            with st.expander(f"👥 รายชื่อทีมงานสำหรับ: {selected_sub}", expanded=True):
+            # ขยายขนาดตัวหนังสือใน expander
+            st.markdown(f"### 👥 ทีมงานสำหรับงาน: <span style='color:#007bff'>{selected_sub}</span>", unsafe_allow_html=True)
+            with st.container(border=True):
                 for _, row in team_info.iterrows():
-                    c1, c2 = st.columns([1, 3])
-                    c1.write(f"👤 **{row['Employee']}**")
+                    c1, c2, c3 = st.columns([2, 4, 2])
+                    c1.markdown(f"<p style='font-size:16px;font-weight:bold;margin:0;'>👤 {row['Employee']}</p>", unsafe_allow_html=True)
                     c2.progress(int(row['Progress'])/100)
+                    c3.markdown(f"<p style='font-size:14px;margin:0;'>{int(row['Progress'])}%</p>", unsafe_allow_html=True)
                     if row['Issue']:
                         st.warning(f"🚩 **Issue:** {row['Issue']}")
 
