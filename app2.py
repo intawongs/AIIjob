@@ -7,7 +7,7 @@ import gspread
 # ---------------------------------------------------------
 # 1. CONFIGURATION & STYLING (ตัวหนังสือใหญ่ ชัดเจน)
 # ---------------------------------------------------------
-st.set_page_config(page_title="AII Project Tracker V16.5", layout="wide")
+st.set_page_config(page_title="AII Project Tracker V16.6", layout="wide")
 
 st.markdown("""
     <style>
@@ -19,7 +19,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🌌 AII Project Management System V16.5")
+st.title("🌌 AII Project Management System V16.6")
 
 # ==========================================
 # 2. DATA ENGINE (Google Sheets)
@@ -78,7 +78,7 @@ def save_data(df_to_save):
 if 'data' not in st.session_state: load_data()
 
 # ==========================================
-# 3. SIDEBAR (เมนูหลักอยู่ครบ)
+# 3. SIDEBAR (ครบถ้วน)
 # ==========================================
 with st.sidebar:
     st.header("⚙️ เมนูควบคุม AII")
@@ -105,7 +105,7 @@ tabs = st.tabs(["📝 ลงทะเบียน", "📊 แผนผังง�
 with tabs[0]:
     st.subheader("📝 มอบหมายงานใหม่")
     df_curr = st.session_state.get('data', pd.DataFrame())
-    with st.form("reg_v16_5", clear_on_submit=True):
+    with st.form("reg_v16_6", clear_on_submit=True):
         p = st.selectbox("📁 เลือกโปรเจกต์", st.session_state.get('projects_list', []))
         sel_mt = st.selectbox("📑 เลือกงานรอง", ["-- สร้างงานรองใหม่ --"] + (df_curr[df_curr['Project'] == p]['Main_Task'].unique().tolist() if p else []))
         new_mt = st.text_input("พิมพ์ชื่อเฟสใหม่"); final_mt = new_mt if sel_mt == "-- สร้างงานรองใหม่ --" else sel_mt
@@ -124,7 +124,6 @@ with tabs[0]:
 with tabs[1]:
     df_all = st.session_state.get('data', pd.DataFrame())
     if not df_all.empty:
-        # 🚨 งานค้างแบบ Group (งานเดียวทำ 2 คน นับเป็น 1)
         today = datetime.now().date()
         df_valid = df_all.dropna(subset=['End_Date'])
         df_grouped = df_valid.groupby(['Project', 'Main_Task', 'Sub_Task', 'End_Date']).agg({'Employee': lambda x: ', '.join(x.unique()), 'Progress': 'mean'}).reset_index()
@@ -136,15 +135,13 @@ with tabs[1]:
                 late_tasks['Days_Late'] = late_tasks['End_Date'].apply(lambda x: (today - x.date()).days)
                 st.dataframe(late_tasks[['Employee', 'Project', 'Sub_Task', 'End_Date', 'Days_Late', 'Progress']].style.highlight_max(subset=['Days_Late'], color='#ffcccc'), use_container_width=True, hide_index=True)
 
-        sel_p = st.selectbox("📂 ดูโปรเจกต์:", df_all['Project'].unique().tolist(), key="view_v16_5")
+        sel_p = st.selectbox("📂 ดูโปรเจกต์:", df_all['Project'].unique().tolist(), key="view_v16_6")
         df_proj = df_all[df_all['Project'] == sel_p].copy()
         
-        # กราฟ Gantt (เน้นเส้นเงาชัดเจน)
         p_pct = df_proj['Progress'].mean(); st.metric(f"🚀 {sel_p} Overall", f"{p_pct:.1f}%")
         master = st.session_state.get('projects_master', pd.DataFrame())
         p_s, p_e = (pd.to_datetime(master[master['Project']==sel_p].iloc[0]['Start_Date']), pd.to_datetime(master[master['Project']==sel_p].iloc[0]['End_Date'])+pd.Timedelta(days=1)) if not master.empty and sel_p in master['Project'].values else (df_proj['Start_Date'].min(), df_proj['End_Date'].max()+pd.Timedelta(days=1))
         
-        # สีเงาเข้มขึ้น + เส้นขอบ
         SHADOW_COLOR = '#D5D8DC'
         plot_data = []
         plot_data.append({'Task': f"🏢 {sel_p}", 'Start': p_s, 'End': p_e, 'Type': 'P_Plan', 'Label': '', 'Width': 0.8, 'Color': SHADOW_COLOR, 'Pos': 'inside'})
@@ -187,7 +184,7 @@ with tabs[1]:
                     df_all.loc[m, 'Status'] = "✅ เสร็จสมบูรณ์" if up_p == 100 else "⏳ กำลังทำ"
                     if save_data(df_all): st.rerun()
 
-# --- TAB 2, 3, 4 (แอดมิน, อันดับ, รายงาน) ---
+# --- TAB 2: แก้ไข/ลบ ---
 with tabs[2]:
     st.subheader("🛠️ แก้ไขข้อมูลดิบ (Admin)")
     df_raw = st.session_state.get('data', pd.DataFrame()).copy()
@@ -196,11 +193,16 @@ with tabs[2]:
         edit = st.data_editor(df_raw, column_config={"เลือก": st.column_config.CheckboxColumn("ลบ?", default=False)}, hide_index=True, use_container_width=True)
         c1, c2 = st.columns(2)
         if c1.button("💾 บันทึกการแก้ไข", type="primary"):
-            final = edit.drop(columns=["เลือก"]); final.loc[final['Progress'] == 100, 'Status'] = "✅ เสร็จสมบูรณ์"
-            if save_data(final): st.rerun()
+            final = edit.drop(columns=["เลือก"])
+            final.loc[final['Progress'] == 100, 'Status'] = "✅ เสร็จสมบูรณ์"
+            if save_data(final): 
+                st.rerun()
         if c2.button("🗑️ ลบรายการที่เลือก"):
-            rem = edit[edit["เลือก"] == False].drop(columns=["เลือก"]); if save_data(rem): st.rerun()
+            rem = edit[edit["เลือก"] == False].drop(columns=["เลือก"])
+            if save_data(rem): 
+                st.rerun()
 
+# --- TAB 3 & 4 (Ranking & Report) ---
 with tabs[3]:
     st.subheader("🏆 Leaderboard")
     ld = df_all.groupby('Employee')['Progress'].mean().reset_index().sort_values('Progress', ascending=False) if not df_all.empty else pd.DataFrame()
