@@ -5,9 +5,9 @@ from datetime import datetime, date, timedelta
 import gspread
 
 # ---------------------------------------------------------
-# 1. CONFIGURATION & STYLING
+# 1. CONFIGURATION & STYLING (ตัวหนังสือใหญ่ ชัดเจน)
 # ---------------------------------------------------------
-st.set_page_config(page_title="AII Project Tracker V16.4", layout="wide")
+st.set_page_config(page_title="AII Project Tracker V16.5", layout="wide")
 
 st.markdown("""
     <style>
@@ -19,10 +19,10 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🌌 AII Project Management System V16.4")
+st.title("🌌 AII Project Management System V16.5")
 
 # ==========================================
-# 2. DATA ENGINE (Google Sheets Connector)
+# 2. DATA ENGINE (Google Sheets)
 # ==========================================
 def connect_gsheet():
     try:
@@ -59,8 +59,7 @@ def load_data():
             st.session_state['projects_list'] = df_projs['Project'].dropna().unique().tolist() if not df_projs.empty else []
             return df_logs
         except Exception as e:
-            st.error(f"Load Error: {e}")
-            return pd.DataFrame(columns=expected_logs)
+            st.error(f"Load Error: {e}"); return pd.DataFrame(columns=expected_logs)
     return pd.DataFrame()
 
 def save_data(df_to_save):
@@ -79,21 +78,21 @@ def save_data(df_to_save):
 if 'data' not in st.session_state: load_data()
 
 # ==========================================
-# 3. SIDEBAR
+# 3. SIDEBAR (เมนูหลักอยู่ครบ)
 # ==========================================
 with st.sidebar:
     st.header("⚙️ เมนูควบคุม AII")
     if st.button("🔄 Sync ข้อมูลล่าสุด", use_container_width=True):
         st.cache_data.clear(); load_data(); st.rerun()
     st.divider()
-    with st.expander("👤 พนักงาน"):
+    with st.expander("👤 รายชื่อพนักงาน"):
         st.write(st.session_state.get('employees', []))
-        n_emp = st.text_input("เพิ่มพนักงาน")
+        n_emp = st.text_input("เพิ่มพนักงานใหม่")
         if st.button("บันทึกพนักงาน"):
             sh = connect_gsheet(); sh.worksheet('Employees').append_row([n_emp]); load_data(); st.rerun()
     with st.expander("📂 Baseline โปรเจกต์"):
         n_p = st.text_input("ชื่อโปรเจกต์")
-        c1, c2 = st.columns(2); ps = c1.date_input("เริ่ม"); pe = c2.date_input("จบ")
+        c1, c2 = st.columns(2); ps = c1.date_input("เริ่ม Baseline"); pe = c2.date_input("จบ Baseline")
         if st.button("บันทึกโปรเจกต์"):
             sh = connect_gsheet(); sh.worksheet('Projects').append_row([n_p, ps.strftime('%Y-%m-%d'), pe.strftime('%Y-%m-%d')]); load_data(); st.rerun()
 
@@ -106,7 +105,7 @@ tabs = st.tabs(["📝 ลงทะเบียน", "📊 แผนผังง�
 with tabs[0]:
     st.subheader("📝 มอบหมายงานใหม่")
     df_curr = st.session_state.get('data', pd.DataFrame())
-    with st.form("reg_v16_4_full", clear_on_submit=True):
+    with st.form("reg_v16_5", clear_on_submit=True):
         p = st.selectbox("📁 เลือกโปรเจกต์", st.session_state.get('projects_list', []))
         sel_mt = st.selectbox("📑 เลือกงานรอง", ["-- สร้างงานรองใหม่ --"] + (df_curr[df_curr['Project'] == p]['Main_Task'].unique().tolist() if p else []))
         new_mt = st.text_input("พิมพ์ชื่อเฟสใหม่"); final_mt = new_mt if sel_mt == "-- สร้างงานรองใหม่ --" else sel_mt
@@ -121,61 +120,59 @@ with tabs[0]:
                 updated = pd.concat([latest, pd.DataFrame(new_rows)], ignore_index=True)
                 if save_data(updated): st.success("บันทึกสำเร็จ!"); st.rerun()
 
-# --- TAB 1: Gantt Chart & ระบบแจ้งงานค้างแบบ Group ---
+# --- TAB 1: Gantt Chart & แจ้งงานค้าง ---
 with tabs[1]:
     df_all = st.session_state.get('data', pd.DataFrame())
     if not df_all.empty:
-        # 🔥 งานค้างแบบ Group (งานเดียวกันนับ 1)
+        # 🚨 งานค้างแบบ Group (งานเดียวทำ 2 คน นับเป็น 1)
         today = datetime.now().date()
         df_valid = df_all.dropna(subset=['End_Date'])
-        df_grouped = df_valid.groupby(['Project', 'Main_Task', 'Sub_Task', 'End_Date']).agg({
-            'Employee': lambda x: ', '.join(x.unique()),
-            'Progress': 'mean',
-            'Issue': lambda x: ' | '.join(x.unique())
-        }).reset_index()
+        df_grouped = df_valid.groupby(['Project', 'Main_Task', 'Sub_Task', 'End_Date']).agg({'Employee': lambda x: ', '.join(x.unique()), 'Progress': 'mean'}).reset_index()
         late_tasks = df_grouped[(df_grouped['Progress'] < 100) & (df_grouped['End_Date'].dt.date < today)].copy()
         
         if not late_tasks.empty:
             st.error(f"🚩 ตรวจพบงานเลยกำหนดส่งทั้งหมด {len(late_tasks)} งาน")
-            with st.expander("🔍 รายละเอียดงานที่เลยกำหนด (Grouped)", expanded=True):
+            with st.expander("🔍 รายละเอียดงานที่เลยกำหนด", expanded=True):
                 late_tasks['Days_Late'] = late_tasks['End_Date'].apply(lambda x: (today - x.date()).days)
                 st.dataframe(late_tasks[['Employee', 'Project', 'Sub_Task', 'End_Date', 'Days_Late', 'Progress']].style.highlight_max(subset=['Days_Late'], color='#ffcccc'), use_container_width=True, hide_index=True)
 
-        sel_p = st.selectbox("📂 ดูโปรเจกต์:", df_all['Project'].unique().tolist())
+        sel_p = st.selectbox("📂 ดูโปรเจกต์:", df_all['Project'].unique().tolist(), key="view_v16_5")
         df_proj = df_all[df_all['Project'] == sel_p].copy()
         
-        # Gantt Logic
+        # กราฟ Gantt (เน้นเส้นเงาชัดเจน)
         p_pct = df_proj['Progress'].mean(); st.metric(f"🚀 {sel_p} Overall", f"{p_pct:.1f}%")
         master = st.session_state.get('projects_master', pd.DataFrame())
         p_s, p_e = (pd.to_datetime(master[master['Project']==sel_p].iloc[0]['Start_Date']), pd.to_datetime(master[master['Project']==sel_p].iloc[0]['End_Date'])+pd.Timedelta(days=1)) if not master.empty and sel_p in master['Project'].values else (df_proj['Start_Date'].min(), df_proj['End_Date'].max()+pd.Timedelta(days=1))
         
+        # สีเงาเข้มขึ้น + เส้นขอบ
+        SHADOW_COLOR = '#D5D8DC'
         plot_data = []
-        plot_data.append({'Task': f"🏢 {sel_p}", 'Start': p_s, 'End': p_e, 'Type': 'P_Plan', 'Label': '', 'Width': 0.8, 'Color': '#E5E8E8', 'Pos': 'inside'})
+        plot_data.append({'Task': f"🏢 {sel_p}", 'Start': p_s, 'End': p_e, 'Type': 'P_Plan', 'Label': '', 'Width': 0.8, 'Color': SHADOW_COLOR, 'Pos': 'inside'})
         plot_data.append({'Task': f"🏢 {sel_p}", 'Start': p_s, 'End': p_s+((p_e-p_s)*(p_pct/100)), 'Type': 'P_Act', 'Label': f"{int(p_pct)}%", 'Width': 0.8, 'Color': '#2C3E50', 'Pos': 'inside'})
         
         for idx, mt in enumerate(df_proj['Main_Task'].unique()):
             df_mt = df_proj[df_proj['Main_Task'] == mt]; g_col = px.colors.qualitative.Prism[idx % 10]
             ms, me, mp = df_mt['Start_Date'].min(), df_mt['End_Date'].max()+pd.Timedelta(days=1), df_mt['Progress'].mean()
-            plot_data.append({'Task': f"📑 {mt}", 'Start': ms, 'End': me, 'Type': f'M_P_{idx}', 'Label': '', 'Width': 0.55, 'Color': '#F2F3F4', 'Pos': 'outside'})
+            plot_data.append({'Task': f"📑 {mt}", 'Start': ms, 'End': me, 'Type': f'M_P_{idx}', 'Label': '', 'Width': 0.55, 'Color': SHADOW_COLOR, 'Pos': 'outside'})
             plot_data.append({'Task': f"📑 {mt}", 'Start': ms, 'End': ms+((me-ms)*(mp/100)), 'Type': f'M_A_{idx}', 'Label': f"{int(mp)}%", 'Width': 0.55, 'Color': g_col, 'Pos': 'outside'})
             
             df_stk = df_mt.groupby(['Sub_Task', 'Dependency']).agg({'Start_Date':'min','End_Date':'max','Progress':'mean'}).reset_index()
             for s_idx, srow in df_stk.iterrows():
                 ss, se, sp = srow['Start_Date'], srow['End_Date']+pd.Timedelta(days=1), srow['Progress']
                 st_lab = f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└ {srow['Sub_Task']}" + (f" (รอ: {srow['Dependency']})" if srow['Dependency'] else "")
-                plot_data.append({'Task': st_lab, 'Start': ss, 'End': se, 'Type': f'S_P_{idx}_{s_idx}', 'Label': '', 'Width': 0.35, 'Color': '#FDFEFE', 'Pos': 'outside'})
+                plot_data.append({'Task': st_lab, 'Start': ss, 'End': se, 'Type': f'S_P_{idx}_{s_idx}', 'Label': '', 'Width': 0.35, 'Color': SHADOW_COLOR, 'Pos': 'outside'})
                 plot_data.append({'Task': st_lab, 'Start': ss, 'End': ss+((se-ss)*(sp/100)), 'Type': f'S_A_{idx}_{s_idx}', 'Label': f"{int(sp)}%", 'Width': 0.35, 'Color': g_col, 'Pos': 'outside'})
 
         fig = px.timeline(pd.DataFrame(plot_data), x_start="Start", x_end="End", y="Task", color="Type", text="Label", height=len(plot_data)*28+150)
         for i, row in pd.DataFrame(plot_data).iterrows():
             f_col = "white" if row['Pos'] == 'inside' else "black"
-            fig.update_traces(marker_color=row['Color'], selector={'name': row['Type']}, patch={"width": row['Width'], "textposition": row['Pos'], "textfont": {"size": 15, "family": "Arial Black", "color": f_col}})
+            fig.update_traces(marker_color=row['Color'], marker_line_color="black", marker_line_width=0.5, selector={'name': row['Type']}, patch={"width": row['Width'], "textposition": row['Pos'], "textfont": {"size": 15, "family": "Arial Black", "color": f_col}})
         fig.update_yaxes(categoryorder="array", categoryarray=[r['Task'] for r in plot_data][::-1], tickfont=dict(size=16, family="Arial Black"), title="")
         fig.update_layout(showlegend=False, barmode='overlay', margin=dict(r=150, l=250))
         fig.add_vline(x=datetime.now().timestamp()*1000, line_dash="solid", line_color="red", line_width=2)
         st.plotly_chart(fig, use_container_width=True)
 
-        st.markdown("---"); st.subheader("📱 ระบบอัปเดตงานวันนี้ (Sync ทั้งทีม)")
+        st.markdown("---"); st.subheader("📱 ระบบอัปเดตงาน (Sync ทั้งทีม)")
         df_sum = df_proj.groupby(['Sub_Task', 'Main_Task']).agg({'Progress': 'mean'}).reset_index()
         ev = st.dataframe(df_sum, use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single-row")
         if ev.selection.rows:
@@ -184,13 +181,13 @@ with tabs[1]:
                 st.markdown(f"### 📝 อัปเดตงาน: **{sel['Sub_Task']}**")
                 c1, c2 = st.columns(2); up_p = c1.slider("%", 0, 100, int(sel['Progress'])); up_i = c2.text_area("ปัญหา:")
                 if st.button("🚀 บันทึกอัปเดตทั้งทีม", use_container_width=True, type="primary"):
-                    m = (df_all['Project']==sel_p) & (df_all['Sub_Task']==sel['Sub_Task']) & (df_all['Main_Task']==sel['Main_Task'])
+                    m = (df_all['Project']==sel_p) & (df_all['Sub_Task']==sel['Sub_Task'])
                     df_all.loc[m, 'Progress'] = up_p
                     if up_i: df_all.loc[m, 'Issue'] = up_i
                     df_all.loc[m, 'Status'] = "✅ เสร็จสมบูรณ์" if up_p == 100 else "⏳ กำลังทำ"
                     if save_data(df_all): st.rerun()
 
-# --- TAB 2: แก้ไข/ลบ ---
+# --- TAB 2, 3, 4 (แอดมิน, อันดับ, รายงาน) ---
 with tabs[2]:
     st.subheader("🛠️ แก้ไขข้อมูลดิบ (Admin)")
     df_raw = st.session_state.get('data', pd.DataFrame()).copy()
@@ -202,10 +199,8 @@ with tabs[2]:
             final = edit.drop(columns=["เลือก"]); final.loc[final['Progress'] == 100, 'Status'] = "✅ เสร็จสมบูรณ์"
             if save_data(final): st.rerun()
         if c2.button("🗑️ ลบรายการที่เลือก"):
-            rem = edit[edit["เลือก"] == False].drop(columns=["เลือก"])
-            if save_data(rem): st.rerun()
+            rem = edit[edit["เลือก"] == False].drop(columns=["เลือก"]); if save_data(rem): st.rerun()
 
-# --- TAB 3 & 4: Rankings & Reports ---
 with tabs[3]:
     st.subheader("🏆 Leaderboard")
     ld = df_all.groupby('Employee')['Progress'].mean().reset_index().sort_values('Progress', ascending=False) if not df_all.empty else pd.DataFrame()
