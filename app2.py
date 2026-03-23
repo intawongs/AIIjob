@@ -5,9 +5,9 @@ from datetime import datetime, date, timedelta
 import gspread
 
 # ---------------------------------------------------------
-# 1. CONFIGURATION & STYLING
+# 1. CONFIGURATION & STYLING (ฉบับตัวหนังสือใหญ่)
 # ---------------------------------------------------------
-st.set_page_config(page_title="AII Project Tracker V14.1", layout="wide")
+st.set_page_config(page_title="AII Project Tracker V15", layout="wide")
 
 st.markdown("""
     <style>
@@ -16,10 +16,11 @@ st.markdown("""
         [data-testid="stMetricValue"] { font-size: 1.8rem; color: #007bff; }
         .stTabs [data-baseweb="tab"] { font-weight: bold; font-size: 1.1rem; }
         .update-box { background-color: #e3f2fd; padding: 20px; border-radius: 10px; border-left: 5px solid #2196f3; margin-top: 20px; }
+        p { font-size: 16px; }
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🌌 AII Project Management System V14.1")
+st.title("🌌 AII Project Management System V15")
 
 # ==========================================
 # 2. DATA ENGINE (Google Sheets)
@@ -51,6 +52,7 @@ def load_data():
             df_projs = pd.DataFrame(ws_projs.get_all_records())
             df_emps = pd.DataFrame(ws_emps.get_all_records())
 
+            # ป้องกัน KeyError: สร้างคอลัมน์ว่างหากไม่มีใน Sheets
             for col in expected_logs:
                 if col not in df_logs.columns:
                     df_logs[col] = "" 
@@ -89,35 +91,35 @@ if 'data' not in st.session_state:
     load_data()
 
 # ==========================================
-# 3. SIDEBAR (ครบทุกฟีเจอร์)
+# 3. SIDEBAR (ครบถ้วนห้ามตัด)
 # ==========================================
 with st.sidebar:
     st.header("⚙️ เมนูควบคุม AII")
-    if st.button("🔄 Sync ข้อมูลจาก Sheets", use_container_width=True):
+    if st.button("🔄 Sync ข้อมูลล่าสุด", use_container_width=True):
         st.cache_data.clear()
         load_data()
         st.rerun()
     
     st.divider()
-    with st.expander("👤 รายชื่อพนักงาน (จัดการ)"):
+    with st.expander("👤 จัดการรายชื่อพนักงาน"):
         st.write(st.session_state.get('employees', []))
-        n_emp = st.text_input("เพิ่มชื่อเล่นพนักงานใหม่")
+        n_emp = st.text_input("เพิ่มชื่อเล่นพนักงาน")
         if st.button("บันทึกพนักงาน"):
             sh = connect_gsheet()
             sh.worksheet('Employees').append_row([n_emp])
-            st.success(f"เพิ่ม {n_emp} แล้ว")
+            st.success("บันทึกสำเร็จ")
             load_data()
             st.rerun()
             
-    with st.expander("📂 กำหนดโปรเจกต์ (Baseline)"):
+    with st.expander("📂 Baseline โปรเจกต์"):
         n_p = st.text_input("ชื่อโปรเจกต์ใหม่")
         c1, c2 = st.columns(2)
-        ps = c1.date_input("วันเริ่ม Baseline", key="side_ps")
-        pe = c2.date_input("วันจบ Baseline", key="side_pe")
+        ps = c1.date_input("เริ่ม Baseline")
+        pe = c2.date_input("จบ Baseline")
         if st.button("บันทึกโปรเจกต์"):
             sh = connect_gsheet()
             sh.worksheet('Projects').append_row([n_p, ps.strftime('%Y-%m-%d'), pe.strftime('%Y-%m-%d')])
-            st.success(f"เพิ่ม {n_p} แล้ว")
+            st.success("บันทึกสำเร็จ")
             load_data()
             st.rerun()
 
@@ -130,27 +132,27 @@ tabs = st.tabs(["📝 ลงทะเบียน", "📊 แผนผังง�
 with tabs[0]:
     st.subheader("📝 มอบหมายงาน (3 ระดับ + Dependency)")
     df_curr = st.session_state.get('data', pd.DataFrame())
-    with st.form("reg_form_v14_1", clear_on_submit=True):
-        p = st.selectbox("📁 1. เลือกโปรเจกต์หลัก", st.session_state.get('projects_list', []))
+    with st.form("reg_form_v15", clear_on_submit=True):
+        p = st.selectbox("📁 เลือกโปรเจกต์", st.session_state.get('projects_list', []))
         
         existing_mt = ["-- สร้างงานรองใหม่ --"]
         if not df_curr.empty and p:
             mt_list = df_curr[df_curr['Project'] == p]['Main_Task'].unique().tolist()
             existing_mt.extend(mt_list)
-        sel_mt = st.selectbox("📑 2. เลือกงานรอง (Main Task)", existing_mt)
-        new_mt = st.text_input("✨ หรือพิมพ์ชื่อเฟส/งานรองใหม่")
+        sel_mt = st.selectbox("📑 เลือกงานรอง", existing_mt)
+        new_mt = st.text_input("✨ หรือพิมพ์ชื่อเฟสใหม่")
         final_mt = new_mt if sel_mt == "-- สร้างงานรองใหม่ --" else sel_mt
         
-        stk = st.text_input("📌 3. ชื่องานย่อย (Sub-task)")
+        stk = st.text_input("📌 ชื่องานย่อย (Sub-task)")
         
         existing_stk = ["-- เริ่มได้ทันที --"]
         if not df_curr.empty and p:
             stk_list = df_curr[df_curr['Project'] == p]['Sub_Task'].unique().tolist()
             existing_stk.extend(stk_list)
-        sel_dep = st.selectbox("🔗 4. งานย่อยที่ต้องรอ (Dependency)", existing_stk)
+        sel_dep = st.selectbox("🔗 งานย่อยที่ต้องรอ", existing_stk)
         final_dep = "" if sel_dep == "-- เริ่มได้ทันที --" else sel_dep
 
-        ems = st.multiselect("👥 5. พนักงานผู้รับผิดชอบ", st.session_state.get('employees', []))
+        ems = st.multiselect("👥 พนักงานผู้รับผิดชอบ", st.session_state.get('employees', []))
         c1, c2 = st.columns(2)
         ds, de = c1.date_input("วันเริ่ม"), c2.date_input("วันจบ")
         
@@ -160,18 +162,18 @@ with tabs[0]:
                 new_rows = [{'Employee': e, 'Project': p, 'Main_Task': final_mt, 'Sub_Task': stk, 'Dependency': final_dep, 'Start_Date': pd.to_datetime(ds), 'End_Date': pd.to_datetime(de), 'Progress': 0, 'Status': '⏳ กำลังทำ'} for e in ems]
                 updated = pd.concat([latest, pd.DataFrame(new_rows)], ignore_index=True)
                 if save_data(updated):
-                    st.success("✅ บันทึกสำเร็จ!"); st.rerun()
+                    st.success("✅ บันทึกสำเร็จ"); st.rerun()
 
-# --- TAB 1: Gantt Chart & Modal Update ---
+# --- TAB 1: Gantt Chart & Smart Group Update ---
 with tabs[1]:
     df_all = st.session_state.get('data', pd.DataFrame())
     if not df_all.empty:
-        # Alert Box
+        # Noti Area
         today = datetime.now().date()
         late = df_all[(df_all['Progress'] < 100) & (df_all['End_Date'].dt.date < today)]
         if not late.empty: st.error(f"🚩 ตรวจพบงานเลยกำหนด {len(late)} รายการ")
 
-        sel_p = st.selectbox("📂 เลือกดูโปรเจกต์:", df_all['Project'].unique().tolist(), key="view_p")
+        sel_p = st.selectbox("📂 ดูโปรเจกต์:", df_all['Project'].unique().tolist(), key="v_p")
         df_proj = df_all[df_all['Project'] == sel_p].copy()
         
         # Gantt Logic
@@ -185,7 +187,6 @@ with tabs[1]:
         p_pct = df_proj['Progress'].mean()
         st.metric(f"🚀 {sel_p} Progress", f"{p_pct:.1f}%")
 
-        # กราฟ ( Layered )
         plot_data = []
         p_lab = f"🏢 {sel_p}"
         plot_data.append({'Task': p_lab, 'Start': p_s, 'End': p_e, 'Type': 'P_Plan', 'Label': '', 'Width': 0.8, 'Color': '#E5E8E8', 'Pos': 'inside'})
@@ -220,57 +221,61 @@ with tabs[1]:
         fig.add_vline(x=datetime.now().timestamp()*1000, line_dash="solid", line_color="red", line_width=2)
         st.plotly_chart(fig, use_container_width=True)
 
-        # --- Popup อัปเดตรายวัน (พนักงานใช้ง่าย) ---
+        # --- Popup Smart Group Update (อัปเดตคนเดียว ปรับทั้งทีม) ---
         st.markdown("---")
-        st.subheader("📱 ระบบอัปเดตงาน (คลิกเลือกงานในตารางเพื่อเปิด Popup)")
-        df_update = df_proj[['Sub_Task', 'Employee', 'Progress', 'Issue']].copy()
-        event = st.dataframe(df_update, use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single-row")
+        st.subheader("📱 ระบบอัปเดตงาน (คลิกเลือกงานเพื่อปรับปรุง Progress ทั้งทีม)")
+        df_summary = df_proj.groupby(['Sub_Task', 'Main_Task', 'Dependency']).agg({'Progress': 'mean'}).reset_index()
+        event = st.dataframe(df_summary, use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single-row")
         
         if event.selection.rows:
             idx = event.selection.rows[0]
-            selected = df_update.iloc[idx]
+            sel = df_summary.iloc[idx]
             
             with st.container(border=True):
-                st.markdown(f"### 📝 กำลังอัปเดตงาน: **{selected['Sub_Task']}**")
+                st.markdown(f"### 📝 แก้ไขงาน: **{sel['Sub_Task']}**")
+                st.info("💡 การอัปเดตที่นี่จะปรับ Progress ให้พนักงานทุกคนที่รับผิดชอบงานนี้โดยอัตโนมัติ")
                 c1, c2 = st.columns(2)
-                up_prog = c1.slider("ความคืบหน้า (%)", 0, 100, int(selected['Progress']))
-                up_issue = c2.text_area("สิ่งที่ทำวันนี้ / ปัญหา:", value=selected['Issue'])
+                up_prog = c1.slider("ความคืบหน้า (%)", 0, 100, int(sel['Progress']))
+                up_issue = c2.text_area("สิ่งที่ทำวันนี้ / ปัญหาที่พบ:")
                 
-                if st.button("🚀 บันทึกการอัปเดต", use_container_width=True, type="primary"):
-                    mask = (df_all['Project'] == sel_p) & (df_all['Sub_Task'] == selected['Sub_Task']) & (df_all['Employee'] == selected['Employee'])
+                if st.button("🚀 บันทึกการอัปเดต (Sync ทั้งทีม)", use_container_width=True, type="primary"):
+                    # 🔥 Logic: ค้นหาทุกคนในงานนี้
+                    mask = (df_all['Project'] == sel_p) & (df_all['Sub_Task'] == sel['Sub_Task']) & (df_all['Main_Task'] == sel['Main_Task'])
                     df_all.loc[mask, 'Progress'] = up_prog
-                    df_all.loc[mask, 'Issue'] = up_issue
+                    if up_issue: df_all.loc[mask, 'Issue'] = up_issue
                     if up_prog == 100: df_all.loc[mask, 'Status'] = "✅ เสร็จสมบูรณ์"
+                    else: df_all.loc[mask, 'Status'] = "⏳ กำลังทำ"
+                    
                     if save_data(df_all): 
-                        st.success("บันทึกสำเร็จ!")
+                        st.success("อัปเดตพนักงานทุกคนในทีมเรียบร้อย!")
                         st.rerun()
 
 # --- TAB 2: แก้ไข/ลบ ---
 with tabs[2]:
-    st.subheader("🛠️ แก้ไขข้อมูลดิบ (Admin Only)")
+    st.subheader("🛠️ จัดการข้อมูลดิบ (Admin)")
     df_raw = st.session_state.get('data', pd.DataFrame()).copy()
     if not df_raw.empty:
-        df_raw.insert(0, "Action", False)
-        edit = st.data_editor(df_raw, column_config={"Action": st.column_config.CheckboxColumn("ลบ?", default=False)}, hide_index=True, use_container_width=True, key="admin_ed")
+        df_raw.insert(0, "เลือก", False)
+        edit = st.data_editor(df_raw, column_config={"เลือก": st.column_config.CheckboxColumn("ลบ?", default=False)}, hide_index=True, use_container_width=True, key="admin_v15")
         c1, c2 = st.columns(2)
         if c1.button("💾 บันทึกการแก้ไข", type="primary"):
-            final = edit.drop(columns=["Action"])
+            final = edit.drop(columns=["เลือก"])
             final.loc[final['Progress'] == 100, 'Status'] = "✅ เสร็จสมบูรณ์"
             if save_data(final): st.rerun()
         if c2.button("🗑️ ลบรายการที่เลือก"):
-            rem = edit[edit["Action"] == False].drop(columns=["Action"])
+            rem = edit[edit["เลือก"] == False].drop(columns=["เลือก"])
             if save_data(rem): st.rerun()
 
 # --- TAB 3 & 4 (Ranking & Reports) ---
 with tabs[3]:
-    st.subheader("🏆 อันดับพนักงาน (ตาม Progress เฉลี่ย)")
+    st.subheader("🏆 Leaderboard")
     if not df_all.empty:
         ld = df_all.groupby('Employee')['Progress'].mean().reset_index().sort_values('Progress', ascending=False)
         st.plotly_chart(px.bar(ld, x='Employee', y='Progress', color='Progress'), use_container_width=True)
 
 with tabs[4]:
-    st.subheader("📑 รายงานภาพรวมโปรเจกต์")
+    st.subheader("📑 รายงาน")
     if not df_all.empty:
         st.dataframe(df_all, use_container_width=True)
         csv = df_all.to_csv(index=False).encode('utf-8-sig')
-        st.download_button("📥 ดาวน์โหลดรายงาน (CSV)", data=csv, file_name=f"Report_{date.today()}.csv")
+        st.download_button("📥 โหลดรายงาน (CSV)", data=csv, file_name=f"Report_{date.today()}.csv")
