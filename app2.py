@@ -78,16 +78,43 @@ def save_data(df_to_save):
     if sh:
         try:
             ws_logs = sh.worksheet('Logs')
-            save_df = df_to_save.copy().fillna("")
-            # จัดรูปแบบวันที่ก่อนส่งกลับไปที่ Sheet
-            save_df['Start_Date'] = pd.to_datetime(save_df['Start_Date']).dt.strftime('%Y-%m-%d')
-            save_df['End_Date'] = pd.to_datetime(save_df['End_Date']).dt.strftime('%Y-%m-%d')
             
+            # 1. กำหนดรายชื่อคอลัมน์ที่ต้องมี (ป้องกันคอลัมน์หาย)
+            expected_cols = [
+                'Employee', 'Project', 'Main_Task', 'Sub_Task', 'Dependency', 
+                'Start_Date', 'End_Date', 'Progress', 'Issue', 'Status'
+            ]
+            
+            # 2. คัดลอกข้อมูลและตรวจสอบว่ามีคอลัมน์ครบไหม (ถ้าไม่มีให้สร้างคอลัมน์ว่าง)
+            temp_df = df_to_save.copy()
+            for col in expected_cols:
+                if col not in temp_df.columns:
+                    temp_df[col] = ""
+            
+            # 3. จัดระเบียบเรียงคอลัมน์ให้ตรงตามที่กำหนดไว้เสมอ
+            temp_df = temp_df[expected_cols]
+
+            # 4. จัดการเรื่องวันที่ (ป้องกัน NaT Error)
+            for col in ['Start_Date', 'End_Date']:
+                # แปลงเป็น datetime และเปลี่ยน format เป็น string, ถ้าว่างให้เป็น ""
+                temp_df[col] = pd.to_datetime(temp_df[col], errors='coerce')
+                temp_df[col] = temp_df[col].dt.strftime('%Y-%m-%d').fillna("")
+
+            # 5. จัดการค่าว่างอื่นๆ (NaN, None) ให้เป็น "" และแปลงทุกอย่างเป็น String
+            temp_df = temp_df.fillna("")
+            
+            # 6. เตรียมข้อมูลส่งออก (Header + Body)
+            header = temp_df.columns.tolist()
+            # แปลงทุก cell เป็น string เพื่อป้องกัน JSON Serializable Error
+            body = temp_df.astype(str).values.tolist()
+            
+            # 7. อัปเดตลง Google Sheets
             ws_logs.clear()
-            ws_logs.update(range_name="A1", values=[save_df.columns.values.tolist()] + save_df.values.tolist())
+            ws_logs.update(range_name="A1", values=[header] + body)
+            
             return True
         except Exception as e:
-            st.error(f"Save Error: {e}")
+            st.error(f"❌ Save Error: {e}")
             return False
     return False
 
