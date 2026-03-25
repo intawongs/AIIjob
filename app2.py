@@ -2,13 +2,14 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
+import plotly.graph_objects as go
 from datetime import datetime, date
 import gspread
 
 # ---------------------------------------------------------
 # 1. CONFIGURATION & STYLING
 # ---------------------------------------------------------
-st.set_page_config(page_title="AII Project Tracker V19.4", layout="wide")
+st.set_page_config(page_title="AII Project Tracker V19.5", layout="wide")
 
 st.markdown("""
     <style>
@@ -20,10 +21,10 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🌌 AII Project Management System V19.4")
+st.title("🌌 AII Project Management System V19.5")
 
 # ==========================================
-# 2. DATA ENGINE (The Core Logic)
+# 2. DATA ENGINE
 # ==========================================
 def connect_gsheet():
     try:
@@ -63,21 +64,17 @@ def load_data():
         st.error(f"⚠️ Load Error: {e}"); return pd.DataFrame(columns=cols)
 
 def safe_save_to_sheet(df_to_save):
-    """ฟังก์ชันเซฟที่อุดรอยรั่ว NaN และ JSON Error"""
     if df_to_save.empty: return False
     sh = connect_gsheet()
     if sh:
         try:
             ws_logs = sh.worksheet('Logs')
             save_df = df_to_save.copy()
-            # จัดการวันที่ NaT
             for col in ['Start_Date', 'End_Date', 'Revised_End']:
                 if col in save_df.columns:
                     save_df[col] = pd.to_datetime(save_df[col], errors='coerce').dt.strftime('%Y-%m-%d').replace('NaT', '')
-            # 🔥 แก้ปัญหา NaN/None Error
             save_df = save_df.replace([np.nan, pd.NA], "")
             data_list = save_df.values.tolist()
-            # เขียนทับตั้งแต่แถว 2 (รักษาหัวตาราง A1)
             ws_logs.batch_clear([f"A2:K{ws_logs.row_count}"])
             ws_logs.update(range_name="A2", values=data_list)
             return True
@@ -104,7 +101,7 @@ with st.sidebar:
 # ==========================================
 # 4. MAIN INTERFACE
 # ==========================================
-tabs = st.tabs(["📝 ลงทะเบียนงาน", "📊 แผนผังงาน (Gantt)"])
+tabs = st.tabs(["📝 ลงทะเบียนงาน", "📊 แผนผังงาน & สรุปผล"])
 
 # --- TAB 0: ลงทะเบียน ---
 with tabs[0]:
@@ -114,7 +111,7 @@ with tabs[0]:
     df_all = st.session_state.get('data', pd.DataFrame())
     f_mt = df_all[df_all['Project'] == sel_p_reg]['Main_Task'].unique().tolist() if not df_all.empty else []
     
-    with st.form("reg_form_v19_4", clear_on_submit=True):
+    with st.form("reg_form_v19_5", clear_on_submit=True):
         sel_mt = st.selectbox("📑 2. เลือกงานรอง", ["-- สร้างงานรองใหม่ --"] + f_mt)
         new_mt = st.text_input("✨ หรือพิมพ์ชื่อเฟสใหม่")
         final_mt = new_mt if sel_mt == "-- สร้างงานรองใหม่ --" else sel_mt
@@ -127,46 +124,75 @@ with tabs[0]:
                 new_rows = [[e, sel_p_reg, final_mt, stk, "", ds.strftime('%Y-%m-%d'), de.strftime('%Y-%m-%d'), "", 0, "", "⏳ กำลังทำ"] for e in ems]
                 ws.append_rows(new_rows); st.success("✅ บันทึกสำเร็จ!"); load_data(); st.rerun()
 
-# --- TAB 1: Gantt Chart & Quick Update ---
+# --- TAB 1: Gantt Chart & Dashboard ---
 with tabs[1]:
     if not df_all.empty:
-        sel_g = st.selectbox("📂 เลือกโปรเจกต์:", p_opts, key="g_view_p")
+        sel_g = st.selectbox("📂 เลือกโปรเจกต์ที่ต้องการวิเคราะห์:", p_opts, key="g_view_p")
         df_p = df_all[df_all['Project'] == sel_g].copy().sort_values('Start_Date')
         
         if not df_p.empty:
+            # --- 🚀 DASHBOARD SECTION ---
+            st.divider()
+            col_graph, col_metric = st.columns([1, 1])
+            
+            # 1. คำนวณ % ตามจริง (Average of Sub-tasks)
+            # เราใช้ groupby Sub_Task ก่อนเพื่อไม่ให้จำนวนพนักงานมีผลต่อ % รวม (กรณี 1 งานทำหลายคน)
+            sub_task_progress = df_p.groupby('Sub_Task')['Progress'].mean()
+            overall_prog = sub_task_progress.mean()
+            
+            # 2. กราฟวงกลมแสดงความก้าวหน้า
+            with col_graph:
+                fig_pie = go.Figure(go.Indicator(
+                    mode = "gauge+number",
+                    value = overall_prog,
+                    domain = {'x': [0, 1], 'y': [0, 1]},
+                    title = {'text': "📊 ความก้าวหน้าโปรเจกต์ (%)", 'font': {'size': 18}},
+                    gauge = {
+                        'axis': {'range': [None, 100], 'tickwidth': 1},
+                        'bar': {'color': "#ff4b4b"},
+                        'steps': [
+                            {'range': [0, 50], 'color': "#f8d7da"},
+                            {'range': [50, 90], 'color': "#fff3cd"},
+                            {'range': [90, 100], 'color': "#d4edda"}],
+                        'threshold': {
+                            'line': {'color': "black", 'width': 4},
+                            'thickness': 0.75,
+                            'value': 100}}))
+                fig_pie.update_layout(height=300, margin=dict(t=0, b=0, l=0, r=0))
+                st.plotly_chart(fig_pie, use_container_width=True)
+            
+            # 3. ข้อมูลสรุปรายพนักงานในโปรเจกต์
+            with col_metric:
+                st.write("👥 **สรุปรายบุคคล (ในโปรเจกต์นี้)**")
+                emp_prog = df_p.groupby('Employee')['Progress'].mean().reset_index()
+                st.dataframe(emp_prog.style.highlight_max(axis=0, color='#d4edda'), hide_index=True, use_container_width=True)
+
+            st.divider()
+            
+            # --- GANTT CHART SECTION ---
             df_p['Actual_End'] = df_p['Revised_End'].fillna(df_p['End_Date'])
-            st.metric(f"🚀 {sel_g} Progress", f"{df_p['Progress'].mean():.1f}%")
-            fig = px.timeline(df_p, x_start="Start_Date", x_end="Actual_End", y="Sub_Task", color="Main_Task", text="Employee", template="plotly_white")
+            fig = px.timeline(df_p, x_start="Start_Date", x_end="Actual_End", y="Sub_Task", 
+                              color="Main_Task", text="Employee", template="plotly_white",
+                              title=f"📅 แผนผังงาน: {sel_g}")
             fig.update_yaxes(autorange="reversed")
             st.plotly_chart(fig, use_container_width=True)
             
-            # --- 🔥 ส่วนเพิ่มใหม่: Quick Update Form ใต้กราฟ ---
-            st.divider()
-            st.subheader("⚡ อัปเดตงานด่วน")
-            # เลือกงานย่อยที่จะอัปเดต (กรองเฉพาะโปรเจกต์ที่ดูอยู่)
+            # --- QUICK UPDATE SECTION ---
+            st.subheader("⚡ อัปเดตงานย่อย")
             st_opts = df_p['Sub_Task'].unique().tolist()
-            sel_stk = st.selectbox("🎯 เลือกงานย่อยที่ต้องการอัปเดต", st_opts)
-            
-            # ดึงข้อมูลเดิมมาแสดง
+            sel_stk = st.selectbox("🎯 เลือกงานย่อย", st_opts)
             row_idx = df_all[(df_all['Project'] == sel_g) & (df_all['Sub_Task'] == sel_stk)].index
             if not row_idx.empty:
-                current_prog = float(df_all.loc[row_idx[0], 'Progress'])
-                current_issue = str(df_all.loc[row_idx[0], 'Issue'])
-                
+                curr_p = int(df_all.loc[row_idx[0], 'Progress'])
                 with st.container(border=True):
                     c1, c2 = st.columns([1, 2])
-                    new_prog = c1.slider("📈 ความคืบหน้า (%)", 0, 100, int(current_prog))
-                    new_issue = c2.text_input("⚠️ หมายเหตุ/ปัญหา (ถ้ามี)", value=current_issue)
-                    
-                    if st.button("🚀 บันทึกการอัปเดต", use_container_width=True, type="primary"):
-                        # อัปเดตข้อมูลใน DataFrame หลัก
-                        df_all.loc[row_idx, 'Progress'] = new_prog
-                        df_all.loc[row_idx, 'Issue'] = new_issue
-                        # เปลี่ยนสถานะอัตโนมัติ
-                        df_all.loc[row_idx, 'Status'] = "✅ เสร็จสมบูรณ์" if new_prog == 100 else "⏳ กำลังทำ"
-                        
+                    up_p = c1.slider("%", 0, 100, curr_p)
+                    up_i = c2.text_input("Issue", value=str(df_all.loc[row_idx[0], 'Issue']))
+                    if st.button("💾 บันทึก", use_container_width=True, type="primary"):
+                        df_all.loc[row_idx, 'Progress'] = up_p
+                        df_all.loc[row_idx, 'Issue'] = up_i
+                        df_all.loc[row_idx, 'Status'] = "✅ เสร็จสมบูรณ์" if up_p == 100 else "⏳ กำลังทำ"
                         if safe_save_to_sheet(df_all):
-                            st.success(f"อัปเดตงาน '{sel_stk}' เรียบร้อย!")
-                            load_data(); st.rerun()
+                            st.success("อัปเดตแล้ว!"); load_data(); st.rerun()
         else:
-            st.info("ไม่พบข้อมูลงานในโปรเจกต์นี้")
+            st.info("ยังไม่มีข้อมูลงานในโปรเจกต์นี้")
